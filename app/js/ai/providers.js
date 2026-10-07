@@ -15,7 +15,7 @@ export const PROVIDERS = {
     name: 'Intern AI', short: 'Intern', logo: { bg: 'linear-gradient(135deg,#2563eb,#06b6d4)', text: 'In' },
     baseUrl: 'https://chat.intern-ai.org.cn/api/v1', model: 'intern-s2',
     models: ['intern-s2', 'intern-latest', 'intern-s1-pro', 'intern-s2-preview-35b', 'intern-s1', 'intern-s1-mini'],
-    needsProxy: true,
+    needsProxy: true, stream: true, maxInput: 12000,
     extraBody: model => (/^intern-s/.test(model) ? { thinking_mode: false } : {}),
     keyUrl: 'https://internlm.intern-ai.org.cn/api/tokens', keyHint: 'eyJ0… hoặc sk-…',
     keySteps: 'Mở internlm.intern-ai.org.cn → đăng ký / đăng nhập (tài khoản phải liên kết số điện thoại) → API Tokens (获取个人密钥) → đặt tên và tạo token → sao chép. Dán nguyên token, không thêm chữ “Bearer”.',
@@ -64,10 +64,11 @@ export const PROVIDERS = {
     keySteps: 'Đăng nhập openrouter.ai → Keys → Create Key → nạp credit nếu cần → sao chép key (bắt đầu bằng sk-or-).',
   },
   discovery: {
-    // Intern Discovery (discovery.intern-ai.org.cn → 科研模型): OpenAI-style, /v1/models, có CORS.
+    // Intern Discovery (discovery.intern-ai.org.cn → 科研模型): OpenAI-style, /v1/models. KHÔNG có CORS (preflight 405) → cần proxy.
     name: 'Intern Discovery', short: 'Discovery', logo: { bg: 'linear-gradient(135deg,#7c3aed,#2563eb)', text: 'D' },
     baseUrl: 'https://discovery-api.intern-ai.org.cn/v1', model: 'deepseek-v4-flash-0731',
     models: ['deepseek-v4-flash-0731', 'deepseek-v4-pro-0813', 'glm-5.3', 'minimax-m3', 'kimi-k2.6', 'intern-s2', 'qwen3.8-27b'],
+    needsProxy: true, stream: true, maxInput: 12000,
     keyUrl: 'https://discovery.intern-ai.org.cn', keyHint: 'sk-…',
     keySteps: 'Đăng nhập discovery.intern-ai.org.cn → mục Mô hình nghiên cứu (科研模型) → tạo / sao chép API key. Lưu ý: key ở “Cài đặt hệ thống → API Key” dành cho công cụ SCP, có thể không dùng để chat.',
   },
@@ -100,7 +101,7 @@ export function providerConf(ai, pid = ai.provider) {
   return {
     id: pid, name: P.name, short: P.short, apiKey: String(c.apiKey || '').trim(), baseUrl: base, accountId, accountMissing,
     model: String(c.model || P.model || '').trim(),
-    useProxy: c.useProxy ?? !!P.needsProxy, needsProxy: !!P.needsProxy,
+    useProxy: c.useProxy ?? !!P.needsProxy, needsProxy: !!P.needsProxy, stream: !!P.stream, maxInput: P.maxInput,
     headers: P.headers ? P.headers() : {}, extraBody: P.extraBody,
   };
 }

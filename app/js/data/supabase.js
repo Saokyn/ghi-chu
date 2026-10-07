@@ -250,6 +250,31 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy' } = {}) {
         }
         return data;
       },
+      // Stream SSE qua proxy: trả về { status, data } như call(); onDelta(text) nhận từng đoạn chữ.
+      async stream(body, onDelta) {
+        const { data: { session } } = await sb.auth.getSession();
+        const base = String(sb.functionsUrl?.href || sb.functionsUrl || (sb.supabaseUrl + '/functions/v1')).replace(/\/+$/, '');
+        const res = await fetch(base + '/' + proxyFunction, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: sb.supabaseKey, Authorization: 'Bearer ' + (session?.access_token || sb.supabaseKey) }, body: JSON.stringify(Object.assign({}, body, { stream: true })) });
+        if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
+          let j = null; try { j = await res.json(); } catch {}
+          if (!res.ok && !j?.status) throw new Error(j?.error || j?.message || ('HTTP ' + res.status));
+          return j; // lỗi nhà cung cấp hoặc không hỗ trợ stream → { status, data }
+        }
+        const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '', text = '';
+        for (;;) {
+          const { value, done } = await rd.read(); if (done) break;
+          buf += dec.decode(value, { stream: true }); let i;
+          while ((i = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+            if (!line.startsWith('data:')) continue; const d = line.slice(5).trim(); if (d === '[DONE]') continue;
+            let j; try { j = JSON.parse(d); } catch { continue; }
+            if (j?.object === 'error' || j?.error) return { status: 502, data: j };
+            const piece = j?.choices?.[0]?.delta?.content; // bỏ qua reasoning_content (suy nghĩ ẩn)
+            if (piece) { text += piece; onDelta?.(piece, text); }
+          }
+        }
+        return { status: 200, data: { choices: [{ message: { content: text } }] } };
+      },
     },
   };
   return api;

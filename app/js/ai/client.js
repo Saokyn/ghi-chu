@@ -32,14 +32,17 @@ export function createAiClient(getData) {
     return r; // { status, data }
   }
 
-  async function chat(ai, messages, { pid, maxTokens, signal } = {}) {
+  async function chat(ai, messages, { pid, maxTokens, signal, onDelta } = {}) {
     const c = providerConf(ai, pid); check(c);
     const body = { model: c.model, messages, stream: false, temperature: 0.3 };
     if (maxTokens) body.max_tokens = maxTokens;
     if (c.extraBody) Object.assign(body, c.extraBody(c.model, body));
     let status, j, raw;
     if (c.useProxy && canProxy()) {
-      const r = await viaProxy(c, { action: 'chat', body });
+      const px = data().proxy;
+      const r = c.stream && px.stream
+        ? await px.stream(Object.assign({ provider: c.id, base_url: c.baseUrl, account_id: c.accountId, api_key: c.apiKey || undefined }, { action: 'chat', body }), onDelta)
+        : await viaProxy(c, { action: 'chat', body });
       status = r.status; j = r.data; raw = JSON.stringify(r.data);
     } else {
       let res;
@@ -119,7 +122,7 @@ export function createAiClient(getData) {
     }
     const langName = lang === 'en' ? 'English' : 'tiếng Việt';
     const sys = `Bạn là trợ lý giúp ghi nhớ. Đọc nội dung người dùng gửi và rút ra ${n} ý chính quan trọng nhất, mỗi ý một câu ngắn gọn, dễ nhớ, viết bằng ${langName}. Đặt một tiêu đề ngắn (tối đa 10 từ). Chỉ trả về JSON hợp lệ dạng {"title":"...","points":["...","..."]}, không thêm chữ nào khác.`;
-    const clipped = source.slice(0, 24000);
+    const clipped = source.slice(0, c.maxInput || 24000);
     const out = await chat(ai, [{ role: 'system', content: sys }, { role: 'user', content: (pageTitle ? 'Tiêu đề trang: ' + pageTitle + '\n\n' : '') + clipped }], { maxTokens: 1200 });
     const parsed = parseSummary(out);
     return { title: parsed.title || pageTitle, points: parsed.points.slice(0, 12), engine: 'ai', provider: c.name, model: c.model, site };

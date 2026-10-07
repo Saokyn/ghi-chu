@@ -28,7 +28,8 @@ const json = (obj: unknown, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
 
 const TIMEOUT_MS = 60_000;          // gọi AI
-const FETCH_TIMEOUT_MS = 15_000;    // đọc trang web
+const FETCH_TIMEOUT_MS = 15_000;
+const STREAM_TIMEOUT_MS = 140_000;    // stream AI (dưới giới hạn 150 s của Edge Function; Intern tự dừng sau 120 s)    // đọc trang web
 const MAX_PAGE_BYTES = 3_000_000;   // tối đa 3 MB HTML
 const MAX_BODY_BYTES = 400_000;     // body gửi lên tối đa ~400 KB
 const MAX_TEXT = 30_000;
@@ -210,9 +211,13 @@ async function handle(req: Request): Promise<Response> {
     const headers: Record<string, string> = { 'Authorization': 'Bearer ' + apiKey, 'Accept': 'application/json', ...(EXTRA_HEADERS[provider] || {}) };
     let res: Response;
     if (action === 'chat') {
-      const body = p.body && typeof p.body === 'object' ? { ...p.body, stream: false } : null;
+      const wantStream = p.stream === true;
+      const body = p.body && typeof p.body === 'object' ? { ...p.body, stream: wantStream } : null;
       if (!body || !Array.isArray(body.messages)) throw new HttpError(400, 'body.messages không hợp lệ');
-      res = await safeFetch(base + '/chat/completions', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, TIMEOUT_MS, { httpsOnly: true });
+      res = await safeFetch(base + '/chat/completions', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', ...(wantStream ? { Accept: 'text/event-stream' } : {}) }, body: JSON.stringify(body) }, wantStream ? STREAM_TIMEOUT_MS : TIMEOUT_MS, { httpsOnly: true });
+      // Stream: chuyển tiếp nguyên luồng SSE (không đệm) để trình duyệt thấy chữ ngay khi model bắt đầu trả lời.
+      if (wantStream && res.ok && (res.headers.get('content-type') || '').includes('text/event-stream') && res.body)
+        return new Response(res.body, { status: 200, headers: { ...CORS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Upstream-Status': String(res.status) } });
     } else {
       res = await safeFetch(modelsUrl(base), { method: 'GET', headers }, TIMEOUT_MS, { httpsOnly: true });
     }
