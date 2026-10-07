@@ -9,9 +9,11 @@ import { formatDateTime, setLunarStamps } from './format.js';
 import { clockHTML, startClock, openCalendar } from './ui/calendar.js';
 import { loadReminders, renderReminders, openReminderDialog, startReminderTicker, remindersCount, activeReminderOf, syncPushOnEnter, refreshPushState } from './ui/reminders.js';
 import { loadAnnouncements, renderBanner } from './ui/announce.js';
-import { setReminderLookup } from './ui/notes.js';
+import { setReminderLookup, setFolderLookup } from './ui/notes.js';
+import { loadFolders, folderNavHTML, folderBarHTML, openFolderDialog, createTemplateFolders, openFolderManager, openMovePicker, openAiSort } from './ui/folders.js';
+import { NONE, folderPath } from './folders.js';
 import { renderAuth, showRecovery } from './ui/auth.js';
-import { notesAreaHTML, listRegionHTML, twoPaneListHTML, hydrateImages, copyTextOf, dayChipHTML } from './ui/notes.js';
+import { notesAreaHTML, listRegionHTML, twoPaneListHTML, hydrateImages, copyTextOf, dayChipHTML, filterNotes, aiSortBtn } from './ui/notes.js';
 import { Editor } from './ui/editor.js';
 import { openAddMenu, openImageDialog, openLinkDialog, openAiDialog, openModal, confirmDialog, closeTopModal, modalOpen } from './ui/dialogs.js';
 import { renderSettings } from './ui/settings.js';
@@ -24,7 +26,7 @@ document.head.appendChild(Object.assign(document.createElement('style'), { id: '
 
 const app = window.__app = {
   data: null, ai: null, user: null, prefs: { ...DEFAULT_PREFS }, appSettings: { ...DEFAULT_APP_SETTINGS }, aiSettings: null,
-  notes: [], reminders: [], filter: { nav: 'all', q: '', day: null }, route: { name: 'notes', tab: '' }, selectedId: null,
+  notes: [], reminders: [], folders: [], filter: { nav: 'all', q: '', day: null, folder: null }, route: { name: 'notes', tab: '' }, selectedId: null,
   paneEditor: null, modalEditor: null, sync: 'connecting', unsub: null, entered: false,
 };
 
@@ -106,7 +108,7 @@ async function enter(u) {
     app.aiSettings = await app.data.ai.get();
     await app.loadSharedAi();
     app.notes = await app.data.notes.list();
-    await Promise.all([loadReminders(app), loadAnnouncements(app)]);
+    await Promise.all([loadReminders(app), loadAnnouncements(app), loadFolders(app)]);
     setLunarStamps(app.prefs.showLunar);
     applyTheme();
     app.entered = true;
@@ -117,7 +119,8 @@ async function enter(u) {
       app.sync = status === 'SUBSCRIBED' ? 'ok' : (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') ? 'off' : 'connecting';
       updateSync();
     });
-    app.unsubRem?.(); app.unsubAnn?.();
+    app.unsubRem?.(); app.unsubAnn?.(); app.unsubFold?.();
+    app.unsubFold = app.data.folders?.subscribe(() => app.reloadFolders());
     app.unsubRem = app.data.reminders?.subscribe(() => app.reloadReminders());
     app.unsubAnn = app.data.announcements?.subscribe(() => app.onAnnouncementsChanged());
     readRoute();
@@ -130,8 +133,8 @@ async function enter(u) {
   } finally { app._entering = null; }
 }
 function leave() {
-  app.unsub?.(); app.unsub = null; app.unsubRem?.(); app.unsubRem = null; app.unsubAnn?.(); app.unsubAnn = null;
-  app.reminders = []; app.announcements = []; app.filter.day = null;
+  app.unsub?.(); app.unsub = null; app.unsubRem?.(); app.unsubRem = null; app.unsubAnn?.(); app.unsubAnn = null; app.unsubFold?.(); app.unsubFold = null;
+  app.reminders = []; app.announcements = []; app.folders = []; app.filter.day = null; app.filter.folder = null;
   document.getElementById('ralerts')?.remove();
   app.entered = false; app.user = null; app.notes = []; app.selectedId = null;
   app.paneEditor?.destroy(); app.paneEditor = null; app.modalEditor = null;
@@ -166,16 +169,18 @@ function navHTML() {
   let h = NAVS.map(([k, ic, l]) => item(k, ic, l, c[k], onNotes && f === k, `data-nav="${k}"`)).join('');
   const rc = remindersCount(app);
   h += `<button class="nav ${r.name === 'reminders' ? 'on' : ''}" data-go="#/nhac-viec" data-tip="Nhắc việc">${icon('bell')}<span class="lb">Nhắc việc</span>${rc ? `<span class="n hot">${rc}</span>` : ''}</button>`;
+  h += folderNavHTML(app);
   h += `<div class="sec">Loại ghi chú</div>`;
   h += Object.entries(NOTE_TYPES).map(([k, t]) => item(k, t.icon, t.label, c[k], onNotes && f === k, `data-nav="${k}"`)).join('');
   h += `<div class="sec">Khác</div>`;
   h += item('settings', 'settings', 'Cài đặt', null, r.name === 'settings', `data-go="#/cai-dat/${r.name === 'settings' ? r.tab || 'ai' : 'ai'}"`);
   if (app.user?.role === 'admin') {
     h += `<div class="sec">Quản trị</div>`;
-    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && !['nguoi-dung', 'ai-dung-chung', 'thong-bao'].includes(r.tab), `data-go="#/quan-tri/giao-dien"`);
+    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && !['nguoi-dung', 'ai-dung-chung', 'thong-bao', 'thu-muc-mau'].includes(r.tab), `data-go="#/quan-tri/giao-dien"`);
     h += item('users', 'users', 'Người dùng', null, r.name === 'admin' && r.tab === 'nguoi-dung', `data-go="#/quan-tri/nguoi-dung"`);
     h += item('sharedai', 'ai', 'AI dùng chung', null, r.name === 'admin' && r.tab === 'ai-dung-chung', `data-go="#/quan-tri/ai-dung-chung"`);
     h += item('ann', 'megaphone', 'Thông báo', null, r.name === 'admin' && r.tab === 'thong-bao', `data-go="#/quan-tri/thong-bao"`);
+    h += item('ftpl', 'folder', 'Thư mục mẫu', null, r.name === 'admin' && r.tab === 'thu-muc-mau', `data-go="#/quan-tri/thu-muc-mau"`);
   }
   return h;
 }
@@ -216,7 +221,7 @@ function renderShell() {
     <main class="main">
       <div class="mtop">
         <div class="hd">${logoHTML(s, 17)}<b>${wordmarkHTML(s.app_name)}</b>${clockHTML(true)}${syncHTML(true)}${themeBtnHTML()}<button class="av" data-go="#/cai-dat/tai-khoan" title="Tài khoản">${esc(initials(u.email))}</button></div>
-        ${r.name === 'notes' ? `<div class="search">${icon('search', 18)}<input type="search" data-search placeholder="Tìm ghi chú…" value="${searchVal}" aria-label="Tìm ghi chú"></div>` : ''}
+        ${r.name === 'notes' ? `<div class="search">${icon('search', 18)}<input type="search" data-search placeholder="Tìm ghi chú…" value="${searchVal}" aria-label="Tìm ghi chú"></div><div id="mfbar">${folderBarHTML(app)}</div>` : ''}
       </div>
       <header class="top">
         <label class="search">${icon('search')}<input type="search" data-search placeholder="Tìm ghi chú, nội dung, đường link…" value="${searchVal}" aria-label="Tìm ghi chú"><span class="kbd">Ctrl K</span></label>
@@ -240,7 +245,9 @@ function renderShell() {
   renderContent();
   renderBanner(app);
   startClock();
+  showActiveChip();
 }
+function showActiveChip() { const c = $('#mfbar .fchip.on'); if (c && isMobile()) { const bar = c.parentElement; bar.scrollLeft = c.offsetLeft - (bar.clientWidth - c.offsetWidth) / 2; } }
 app.renderShell = renderShell;
 
 function renderContent() {
@@ -264,15 +271,62 @@ function renderList() {
   if (view === 'twopane') {
     const sc = $('#lp-list'); if (!sc) return renderContent();
     sc.innerHTML = twoPaneListHTML(app); hydrateImages(sc, app);
-    const head = $('#lp-head'); if (head) head.innerHTML = `<h2>Ghi chú<small>${app.notes.length}</small></h2>${dayChipHTML(app)}`;
+    const head = $('#lp-head'); if (head) head.innerHTML = lpHeadHTML();
     $$('.lp .tabs button').forEach(b => b.classList.toggle('on', b.dataset.nav === app.filter.nav || (app.filter.nav === 'pinned' && b.dataset.nav === 'all')));
     return;
   }
+  const mb = $('#mfbar'); if (mb) { mb.innerHTML = folderBarHTML(app); showActiveChip(); }
   const reg = $('#region'); if (!reg) return renderContent();
   reg.innerHTML = listRegionHTML(app, view); hydrateImages(reg, app);
   const hd = $('#notes-head'); if (hd) { const tmp = document.createElement('div'); tmp.innerHTML = notesAreaHTML(app, view); const nh = tmp.querySelector('#notes-head'); if (nh) hd.innerHTML = nh.innerHTML; }
 }
 app.renderList = renderList;
+function lpHeadHTML() {
+  const f = app.filter.folder, name = !f ? 'Ghi chú' : f === NONE ? 'Chưa phân loại' : folderPath(app.folders, f) || 'Ghi chú';
+  return `<h2>${esc(name)}<small>${f ? filterNotes(app).length : app.notes.length}</small></h2>${aiSortBtn(app, true)}${dayChipHTML(app)}`;
+}
+app.lpHeadHTML = lpHeadHTML;
+app.visibleNotes = () => filterNotes(app);
+/* ---------- thư mục ---------- */
+setFolderLookup(n => {
+  if (!n.folder_id || app.filter.folder === n.folder_id) return '';
+  const f = app.folders.find(x => x.id === n.folder_id); if (!f) return '';
+  return `<span class="fbadge ${f.icon ? 'ic' : ''}" style="--fc:${PALETTE[f.color]?.light.acc || 'var(--ink3)'}">${f.icon ? esc(f.icon) + ' ' : ''}${esc(folderPath(app.folders, f.id))}</span>`;
+});
+app.reloadFolders = async () => {
+  if (!app.entered) return;
+  await loadFolders(app);
+  if (app.filter.folder && app.filter.folder !== NONE && !app.folders.some(f => f.id === app.filter.folder)) app.filter.folder = null;
+  if (app.route.name === 'notes') renderList(); else { const nav = $('#nav'); if (nav) nav.innerHTML = navHTML(); }
+  app.paneEditor?.renderFolder?.(); app.modalEditor?.renderFolder?.();
+};
+app.setFolderFilter = (id) => {
+  app.filter.folder = id || null;
+  if (app.route.name !== 'notes') { app.navigate('#/'); return; }
+  if (isMobile()) renderShell(); else renderList();
+};
+/** Chuyển nhiều ghi chú vào thư mục (null = Chưa phân loại). Lạc quan; không đổi thời gian "Sửa". Trả về số ghi chú đã chuyển. */
+app.moveNotes = async (ids, folderId, { quiet = false } = {}) => {
+  folderId = folderId || null;
+  const todo = ids.map(id => app.notes.find(x => x.id === id)).filter(n => n && (n.folder_id || null) !== folderId);
+  for (const n of todo) { const opt = Object.assign({}, n, { folder_id: folderId }); upsertLocal(opt); for (const ed of [app.paneEditor, app.modalEditor]) if (ed?.noteId() === n.id) ed.onRemote(opt, true); }
+  if (todo.length) renderList();
+  let ok = 0; const fails = [];
+  for (let i = 0; i < todo.length; i += 8) {
+    const res = await Promise.allSettled(todo.slice(i, i + 8).map(n => app.data.notes.update(n.id, { folder_id: folderId })));
+    res.forEach((r, k) => { const n = todo[i + k]; if (r.status === 'fulfilled') ok++; else { fails.push(r.reason); upsertLocal(n); for (const ed of [app.paneEditor, app.modalEditor]) if (ed?.noteId() === n.id) ed.onRemote(n, true); } });
+  }
+  if (fails.length) { renderList(); toast(`Không chuyển được ${fails.length} ghi chú: ${fails[0]?.message || fails[0]}`, { kind: 'err', ms: 6000 }); }
+  else if (!quiet && ok && ids.length === 1) {/* toast do nơi gọi hiển thị */}
+  return ok;
+};
+/** Sửa nhẹ (nhãn…) không đổi thời gian "Sửa" */
+app.patchNote = async (id, patch) => {
+  const n = app.notes.find(x => x.id === id); if (!n) return;
+  upsertLocal(Object.assign({}, n, patch)); renderList();
+  try { const u = await app.data.notes.update(id, patch); const cur = app.notes.find(x => x.id === id); if (cur) upsertLocal(Object.assign({}, cur, { ...patch, updated_at: u.updated_at })); }
+  catch (e) { upsertLocal(n); renderList(); throw e; }
+};
 
 /* ============================== trình soạn ============================== */
 function mountPaneEditor() {
@@ -359,7 +413,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
   navigator.serviceWorker.addEventListener('message', ev => { if (ev.data?.type === 'push') app.reloadReminders?.(); });
 }
-app.newNote = (type = 'text', extra = {}) => app.openNote(Object.assign({ _draft: true, type, title: '', content: '', pinned: false }, extra));
+app.newNote = (type = 'text', extra = {}) => app.openNote(Object.assign({ _draft: true, type, title: '', content: '', pinned: false, folder_id: app.filter.folder && app.filter.folder !== NONE && app.folders.some(f => f.id === app.filter.folder) ? app.filter.folder : null }, extra));
 
 /* ============================== thao tác ghi chú ============================== */
 function upsertLocal(n) {
@@ -465,7 +519,7 @@ function onRemote(ev) {
   }
   if (ev.type === 'upsert' && ev.note) {
     const old = app.notes.find(n => n.id === ev.note.id);
-    if (old && old.updated_at === ev.note.updated_at && old.pinned === ev.note.pinned && (old.color || null) === (ev.note.color || null) && old.title === ev.note.title && old.content === ev.note.content) return; // tiếng vọng của chính mình
+    if (old && old.updated_at === ev.note.updated_at && old.pinned === ev.note.pinned && (old.color || null) === (ev.note.color || null) && (old.folder_id || null) === (ev.note.folder_id || null) && (old.tags || []).join('|') === (ev.note.tags || []).join('|') && old.title === ev.note.title && old.content === ev.note.content) return; // tiếng vọng của chính mình
     upsertLocal(ev.note); renderList();
     for (const ed of [app.paneEditor, app.modalEditor]) if (ed && ed.noteId() === ev.note.id) ed.onRemote(ev.note);
   }
@@ -482,6 +536,23 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('click', async e => {
   if (!app.entered) return;
+  const fe = e.target.closest('[data-folder],[data-fact],[data-fedit],[data-tagq]');
+  if (fe && $('#root').contains(fe)) {
+    e.preventDefault(); e.stopPropagation();
+    if (fe.dataset.fedit) { const f = app.folders.find(x => x.id === fe.dataset.fedit); if (f) openFolderDialog(app, { folder: f }); return; }
+    if (fe.dataset.tagq) { const q = '#' + fe.dataset.tagq; app.filter.q = app.filter.q === q ? '' : q; $$('[data-search]').forEach(x => x.value = app.filter.q); renderList(); return; }
+    if (fe.dataset.fact) {
+      const k = fe.dataset.fact;
+      if (k === 'new') openFolderDialog(app, {});
+      else if (k === 'tpl') createTemplateFolders(app);
+      else if (k === 'manage') openFolderManager(app);
+      else if (k === 'aisort') openAiSort(app, {});
+      return;
+    }
+    const id = fe.dataset.folder;
+    app.setFolderFilter(id && id !== app.filter.folder ? id : null);
+    return;
+  }
   const t = e.target.closest('[data-act],[data-nav],[data-go],[data-view],[data-open],[data-tab]');
   if (!t || !$('#root').contains(t)) return;
   if (t.dataset.go) { e.preventDefault(); app.navigate(t.dataset.go); return; }
@@ -521,6 +592,7 @@ document.addEventListener('click', async e => {
     }
     if (act === 'copy' && id) { const n = app.notes.find(x => x.id === id); if (n) app.copyNote(n); return; }
     if (act === 'pin' && id) { app.togglePin(id); return; }
+    if (act === 'move' && id) { openMovePicker(app, [id]); return; }
     if (act === 'del' && id) { app.deleteNote(id); return; }
     if (act === 'edit' && id) { const n = app.notes.find(x => x.id === id); if (n) app.openNote(n); return; }
     if (act === 'new') { openAddMenu(app, t); return; }
@@ -554,6 +626,30 @@ document.addEventListener('paste', e => {
   const f = imageFromPaste(e); if (!f) return;
   e.preventDefault(); openImageDialog(app, { file: f });
 });
+// Kéo-thả ghi chú vào thư mục (máy tính)
+let dragId = null;
+document.addEventListener('dragstart', e => {
+  const r = e.target.closest?.('[data-open][draggable]'); if (!r || !app.entered) return;
+  dragId = r.dataset.open; e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/x-note-id', dragId); e.dataTransfer.setData('text/plain', titleOfId(dragId)); } catch {}
+  document.body.classList.add('dragging-note');
+});
+document.addEventListener('dragend', () => { dragId = null; document.body.classList.remove('dragging-note'); $$('.fdrop-over').forEach(x => x.classList.remove('fdrop-over')); });
+document.addEventListener('dragover', e => {
+  const d = e.target.closest?.('[data-fdrop]'); if (!d || !dragId) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  if (!d.classList.contains('fdrop-over')) { $$('.fdrop-over').forEach(x => x.classList.remove('fdrop-over')); d.classList.add('fdrop-over'); }
+});
+document.addEventListener('dragleave', e => { const d = e.target.closest?.('[data-fdrop]'); if (d && !d.contains(e.relatedTarget)) d.classList.remove('fdrop-over'); });
+document.addEventListener('drop', async e => {
+  const d = e.target.closest?.('[data-fdrop]'); if (!d) return;
+  e.preventDefault(); d.classList.remove('fdrop-over'); document.body.classList.remove('dragging-note');
+  const id = dragId || e.dataTransfer.getData('text/x-note-id'); dragId = null; if (!id) return;
+  const to = d.dataset.fdrop === NONE ? null : d.dataset.fdrop;
+  const n = await app.moveNotes([id], to);
+  if (n) toast(`Đã chuyển vào ${to ? '“' + folderPath(app.folders, to) + '”' : 'Chưa phân loại'}`);
+});
+function titleOfId(id) { const n = app.notes.find(x => x.id === id); return (n?.title || n?.content || '').slice(0, 80); }
 let lastMobile = isMobile();
 window.addEventListener('resize', debounce(() => { const m = isMobile(); if (m !== lastMobile) { lastMobile = m; renderShell(); } }, 150));
 window.addEventListener('beforeunload', e => {

@@ -26,7 +26,12 @@ export const NOTE_TYPES = {
   link: { label: 'Đường link', short: 'Link', icon: 'link' },
   ai: { label: 'AI tóm tắt', short: 'AI', icon: 'ai' },
 };
-export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto', showLunar: false, reminderSound: true };
+export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto', showLunar: false, reminderSound: true, folderSuggest: true };
+// Thư mục mẫu mặc định (bản Supabase: bảng folder_templates, admin sửa trong Quản trị › Thư mục mẫu)
+export const DEFAULT_FOLDER_TEMPLATES = [
+  { name: 'Công việc', color: 'sky', icon: '💼', sort: 1 }, { name: 'Cá nhân', color: 'rose', icon: '🏠', sort: 2 }, { name: 'Tài chính', color: 'butter', icon: '💰', sort: 3 },
+  { name: 'Sức khỏe', color: 'mint', icon: '❤️', sort: 4 }, { name: 'Ý tưởng', color: 'lavender', icon: '💡', sort: 5 },
+];
 export const DEFAULT_AI = {
   provider: 'xai',
   providers: {},            // { [pid]: { apiKey, baseUrl, model, accountId, useProxy, fetchedModels, fetchedAt, test } }

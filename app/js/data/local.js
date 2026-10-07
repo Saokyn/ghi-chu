@@ -1,6 +1,6 @@
 // Bộ chuyển đổi "chế độ demo": mọi dữ liệu nằm trong localStorage của trình duyệt.
 // Cùng giao diện với bộ chuyển đổi Supabase (xem data/index.js). Đồng bộ giữa các tab bằng sự kiện "storage".
-import { DEFAULT_APP_SETTINGS, DEFAULT_PREFS, DEFAULT_AI } from '../defaults.js';
+import { DEFAULT_APP_SETTINGS, DEFAULT_PREFS, DEFAULT_AI, DEFAULT_FOLDER_TEMPLATES } from '../defaults.js';
 import { uuid, nowIso } from '../util.js';
 import { computeLineTimes } from '../lineTimes.js';
 
@@ -20,6 +20,16 @@ async function hash(pw) {
   let h = 0; for (const b of data) h = (h * 31 + b) >>> 0; return 'x' + h.toString(16);
 }
 
+function checkFolder(others, f, selfId) {
+  const name = String(f.name || '').trim();
+  if (!name || name.length > 60) throw new Error('Tên thư mục cần 1–60 ký tự.');
+  if (others.some(x => (x.parent_id || null) === (f.parent_id || null) && x.name.trim().toLowerCase() === name.toLowerCase())) throw new Error('Đã có thư mục tên “' + name + '” ở cùng cấp.');
+  if (f.parent_id) {
+    const p = others.find(x => x.id === f.parent_id);
+    if (!p || p.parent_id) throw new Error('Chỉ lồng thư mục được 1 cấp.');
+    if (selfId && others.some(x => x.parent_id === selfId)) throw new Error('Thư mục đang có thư mục con nên không thể làm thư mục con.');
+  }
+}
 export function createLocalAdapter() {
   let user = null;
   const authL = new Set(), appL = new Set();
@@ -91,7 +101,7 @@ export function createLocalAdapter() {
       async create(fields) {
         need();
         const t = nowIso();
-        const n = Object.assign({ id: uuid(), user_id: user.id, type: 'text', title: '', content: '', image_path: null, url: null, link_meta: null, ai_source: null, pinned: false, color: null, line_times: [], created_at: t, updated_at: t }, fields, { user_id: user.id });
+        const n = Object.assign({ id: uuid(), user_id: user.id, type: 'text', title: '', content: '', image_path: null, url: null, link_meta: null, ai_source: null, pinned: false, color: null, folder_id: null, tags: [], line_times: [], created_at: t, updated_at: t }, fields, { user_id: user.id });
         const list = loadNotes(); list.unshift(n); saveNotes(list);
         return n;
       },
@@ -221,6 +231,38 @@ export function createLocalAdapter() {
       subscribe() { return () => {}; },
     },
     push: { available: false },
+    // Thư mục (demo: lưu trên máy) — cùng quy tắc với Supabase: tên không trùng trong cùng cấp, lồng 1 cấp, xoá cha → xoá con, ghi chú về Chưa phân loại
+    folders: {
+      async list() { need(); return read('folders.' + user.id, []); },
+      async create(f) {
+        need(); const all = read('folders.' + user.id, []); checkFolder(all, f);
+        const t = nowIso(), row = { id: uuid(), user_id: user.id, name: f.name.trim(), color: f.color || null, icon: f.icon || null, parent_id: f.parent_id || null, sort: f.sort ?? (Math.max(0, ...all.map(x => x.sort || 0)) + 1), created_at: t, updated_at: t };
+        all.push(row); write('folders.' + user.id, all); return row;
+      },
+      async update(id, patch) {
+        need(); const all = read('folders.' + user.id, []); const i = all.findIndex(x => x.id === id); if (i < 0) throw new Error('Không tìm thấy thư mục.');
+        const next = Object.assign({}, all[i], patch, { id, user_id: user.id, updated_at: nowIso() }); checkFolder(all.filter(x => x.id !== id), next, id);
+        all[i] = next; write('folders.' + user.id, all); return next;
+      },
+      async remove(id) {
+        need(); const all = read('folders.' + user.id, []); const gone = new Set([id, ...all.filter(x => x.parent_id === id).map(x => x.id)]);
+        write('folders.' + user.id, all.filter(x => !gone.has(x.id)));
+        saveNotes(loadNotes().map(n => gone.has(n.folder_id) ? Object.assign({}, n, { folder_id: null }) : n));
+      },
+      async fromTemplates() {
+        need(); const tpl = await api.folderTemplates.list(); let n = 0;
+        for (const t of tpl) { const all = read('folders.' + user.id, []); if (all.some(f => !f.parent_id && f.name.trim().toLowerCase() === t.name.trim().toLowerCase())) continue; await api.folders.create({ name: t.name, color: t.color, icon: t.icon }); n++; }
+        return n;
+      },
+      subscribe() { return () => {}; },
+    },
+    folderTemplates: {
+      async list() { need(); return read('folder_templates', null) || DEFAULT_FOLDER_TEMPLATES.map((t, i) => Object.assign({ id: 'tpl' + i }, t)); },
+      async save(list) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên mới sửa được thư mục mẫu.');
+        write('folder_templates', list.map((t, i) => ({ id: t.id || uuid(), name: String(t.name).trim(), color: t.color || null, icon: t.icon || null, sort: i + 1 }))); return api.folderTemplates.list();
+      },
+    },
     proxy: { available: false, async call() { throw new Error('Proxy (Supabase Edge Function) chỉ dùng được khi đã cấu hình Supabase.'); } },
     demo: {
       async setAdmin(on) {

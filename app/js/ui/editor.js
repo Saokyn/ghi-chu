@@ -9,6 +9,8 @@ import { computeLineTimes, lineStatus, effectiveLineTimes, splitLines } from '..
 import { confirmDialog } from './dialogs.js';
 import { titleOf, hydrateImages } from './notes.js';
 import { PALETTE, PALETTE_KEYS, noteColor } from '../palette.js';
+import { folderPath, parseTags, normTag } from '../folders.js';
+import { openMovePicker, suggestForNew } from './folders.js';
 
 const FIELDS = ['title', 'content', 'url', 'link_meta', 'ai_source', 'image_path'];
 const PLACEHOLDER = {
@@ -26,6 +28,8 @@ export class Editor {
     this.pinned = !!note.pinned;
     this.draftId = note._draft ? (note.id || uuid()) : null; // id cố định cho bản nháp → màu tự động không đổi sau khi lưu
     this.color = PALETTE[note.color] ? note.color : null;
+    this.folderId = note.folder_id || null;
+    this.tags = Array.isArray(note.tags) ? [...note.tags] : [];
     this.cur = {};
     for (const f of FIELDS) this.cur[f] = note[f] ?? (f === 'title' || f === 'content' ? '' : null);
     this.pendingImage = null; // ảnh mới (đã nén) chưa tải lên
@@ -102,6 +106,8 @@ export class Editor {
       <div class="ed-scroll"><div class="doc ${lt ? 'lt' : ''}">
         <div class="meta2"></div>
         <input class="title-in" placeholder="Tiêu đề ghi chú" aria-label="Tiêu đề" maxlength="300">
+        <div class="fline"><button class="fbtn" data-e="folder" title="Chuyển vào thư mục" aria-label="Chuyển vào thư mục"></button><div class="tagrow"></div></div>
+        <div class="fsug" hidden></div>
         <div class="tsec"></div>
         <div class="lines"><div class="gut" aria-hidden="true"></div><div class="tawrap"><textarea class="ta" spellcheck="false" aria-label="Nội dung"></textarea><div class="mirror" aria-hidden="true"></div></div></div>
       </div></div>
@@ -116,8 +122,17 @@ export class Editor {
     ta.addEventListener('input', () => { this.cur.content = ta.value; this.queueLines(); this.refreshState(); });
     this.el.addEventListener('click', e => this.onClick(e));
     this.el.addEventListener('paste', e => this.onPaste(e));
+    this.el.addEventListener('keydown', e => {
+      if (!e.target.matches?.('.tagin')) return;
+      const v = e.target.value;
+      if ((e.key === 'Enter' || e.key === ',') && v.trim()) { e.preventDefault(); e.target.value = ''; this.setTags([...this.tags, v]); }
+      else if (e.key === 'Enter') e.preventDefault();
+      else if (e.key === 'Backspace' && !v && this.tags.length) this.setTags(this.tags.slice(0, -1));
+    });
+    this.el.addEventListener('focusout', e => { if (e.target.matches?.('.tagin') && e.target.value.trim()) { const v = e.target.value; e.target.value = ''; this.setTags([...this.tags, v]); } });
+    this.q('.fsug').addEventListener('fsg-moved', e => { this.folderId = e.detail; this.renderFolder(); });
     this.el.addEventListener('keydown', e => { if (e.key === 'Escape' && this.mode === 'modal') { e.stopPropagation(); this.onRequestClose?.(); } });
-    this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.applyColor();
+    this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.applyColor(); this.renderFolder(); this.renderTags();
   }
 
   renderMeta() {
@@ -206,6 +221,11 @@ export class Editor {
     const k = b.dataset.e;
     if (k === 'close') this.onRequestClose?.();
     else if (k === 'save') this.save();
+    else if (k === 'folder') {
+      if (this.saved) openMovePicker(this.app, [this.saved.id]);
+      else openMovePicker(this.app, [], { current: this.folderId, onPick: id => { this.folderId = id; this.renderFolder(); } });
+    }
+    else if (k === 'untag') this.setTags(this.tags.filter(t => t !== b.dataset.t));
     else if (k === 'remind') {
       if (!this.saved) { if (!this.isDirty()) { toast('Viết ghi chú rồi lưu trước khi đặt nhắc', { kind: 'info' }); return; } await this.save(); }
       if (this.saved) this.app.openReminder({ note: this.saved });
@@ -295,7 +315,7 @@ export class Editor {
       d.line_times = computeLineTimes(this.baseLineTimes(), d.content || '', now);
       d.updated_at = now;
       let note;
-      if (!this.saved) note = await this.app.createNote(Object.assign(d, this.draftId ? { id: this.draftId } : {}, { type: this.type, pinned: this.pinned, color: this.color, created_at: now }));
+      if (!this.saved) note = await this.app.createNote(Object.assign(d, this.draftId ? { id: this.draftId } : {}, { type: this.type, pinned: this.pinned, color: this.color, folder_id: this.folderId, tags: this.tags, created_at: now }));
       else note = await this.app.updateNote(this.saved.id, d);
       if (oldImage && oldImage !== note.image_path && !/^(data:|img\/)/.test(oldImage)) this.app.data.images.remove(oldImage).catch(() => {});
       const wasDraft = !this.saved;
@@ -303,6 +323,7 @@ export class Editor {
       for (const f of FIELDS) this.cur[f] = note[f] ?? this.cur[f];
       this.renderMeta(); if (this.type !== 'text') this.renderTypeSection(); this.refreshState(); this.queueLines();
       if (wasDraft && this.mode === 'pane') { this.app.selectedId = note.id; this.app.renderList(); }
+      if (wasDraft && !note.folder_id) suggestForNew(this.app, note, this.q('.fsug'));
       toast('Đã lưu · ' + formatDateTime(now));
     } catch (err) { toast('Không lưu được: ' + err.message, { kind: 'err', ms: 6000 }); }
     finally { this.saving = false; btn.disabled = false; }
@@ -311,16 +332,46 @@ export class Editor {
   /* ---------- đồng bộ từ thiết bị khác ---------- */
   loadFrom(n) {
     this.saved = n; this.pinned = !!n.pinned; this.pendingImage = null; this.color = PALETTE[n.color] ? n.color : null; this.applyColor();
+    this.folderId = n.folder_id || null; this.tags = [...(n.tags || [])]; this.renderFolder(); this.renderTags();
     for (const f of FIELDS) this.cur[f] = n[f] ?? (f === 'title' || f === 'content' ? '' : null);
     this.q('.title-in').value = this.cur.title || ''; this.q('.ta').value = this.cur.content || '';
     this.q('[data-e=pin]').classList.toggle('on', this.pinned);
     this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.queueLines();
   }
+  /* ---------- thư mục & nhãn ---------- */
+  renderFolder() {
+    const b = this.q('.fbtn'); if (!b) return;
+    const f = this.folderId && (this.app.folders || []).find(x => x.id === this.folderId);
+    b.innerHTML = `${icon('folder', 13)}<span>${f ? esc(folderPath(this.app.folders, f.id)) : 'Chưa phân loại'}</span>`;
+    b.classList.toggle('set', !!f);
+  }
+  renderTags() {
+    const r = this.q('.tagrow'); if (!r) return;
+    const keep = r.querySelector('input')?.value || '';
+    r.innerHTML = `${icon('tag', 13)}${this.tags.map(t => `<span class="tgc">#${esc(t)}<button data-e="untag" data-t="${esc(t)}" aria-label="Bỏ nhãn ${esc(t)}">×</button></span>`).join('')}<input class="tagin" maxlength="40" placeholder="${this.tags.length ? 'Thêm nhãn…' : 'Thêm nhãn (Enter)…'}" aria-label="Thêm nhãn" value="${esc(keep)}">`;
+  }
+  async setTags(tags) {
+    tags = parseTags(tags.join(','));
+    if (tags.join('|') === this.tags.join('|')) return;
+    this.tags = tags; this.renderTags(); this.q('.tagin')?.focus();
+    if (this.saved) {
+      try { await this.app.patchNote(this.saved.id, { tags }); this.saved = Object.assign({}, this.saved, { tags }); }
+      catch (e) { toast('Không lưu được nhãn: ' + e.message, { kind: 'err' }); }
+    }
+  }
+  syncFolderTags(n) {
+    const tags = n.tags || [], fid = n.folder_id || null;
+    if (fid !== this.folderId) { this.folderId = fid; this.renderFolder(); if (fid) { const s = this.q('.fsug'); if (s) s.hidden = true; } }
+    if (tags.join('|') !== this.tags.join('|')) { this.tags = [...tags]; this.renderTags(); }
+    if (this.saved) this.saved = Object.assign({}, this.saved, { folder_id: fid, tags: [...tags] });
+  }
+
   onRemote(n, pinOnly = false) {
     if (!this.saved || n.id !== this.saved.id) return;
     this.pinned = !!n.pinned; this.q('[data-e=pin]').classList.toggle('on', this.pinned);
     const col = PALETTE[n.color] ? n.color : null;
     if (col !== this.color) { this.color = col; this.applyColor(); }
+    this.syncFolderTags(n);
     if (pinOnly || n.updated_at === this.saved.updated_at) { this.saved = Object.assign({}, this.saved, { pinned: n.pinned, color: n.color ?? null }); return; }
     if (!this.isDirty()) { this.loadFrom(n); toast('Ghi chú vừa được cập nhật từ thiết bị khác', { kind: 'info' }); return; }
     this.remoteNote = n;

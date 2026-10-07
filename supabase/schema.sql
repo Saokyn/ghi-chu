@@ -617,4 +617,114 @@ do $$ begin
   end if;
 end $$;
 
+
+-- =====================================================================
+-- Thư mục + nhãn + thư mục mẫu (pha 3). Chạy lại nhiều lần được.
+-- =====================================================================
+create table if not exists public.folders (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name        text not null check (char_length(btrim(name)) between 1 and 60),
+  color       text check (color is null or color ~ '^[a-z]{2,16}$'),
+  icon        text check (icon is null or char_length(icon) <= 16),
+  parent_id   uuid references public.folders(id) on delete cascade,   -- lồng tối đa 1 cấp; xoá cha → xoá con
+  sort        int not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  check (parent_id is null or parent_id <> id)
+);
+create index if not exists folders_user_idx on public.folders (user_id, sort);
+create unique index if not exists folders_name_uniq on public.folders (user_id, coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(btrim(name)));
+create or replace function public.folders_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' then new.user_id := old.user_id; new.created_at := old.created_at; new.updated_at := now(); end if;
+  new.name := btrim(new.name);
+  if new.parent_id is not null then
+    if not exists (select 1 from public.folders p where p.id = new.parent_id and p.user_id = new.user_id and p.parent_id is null) then
+      raise exception 'Thư mục cha không hợp lệ (chỉ lồng 1 cấp, cùng chủ sở hữu)' using errcode = '23514';
+    end if;
+    if exists (select 1 from public.folders c where c.parent_id = new.id) then
+      raise exception 'Thư mục đang có thư mục con nên không thể làm thư mục con' using errcode = '23514';
+    end if;
+  end if;
+  if tg_op = 'INSERT' and (select count(*) from public.folders where user_id = new.user_id) >= 200 then
+    raise exception 'Tối đa 200 thư mục' using errcode = '54000';
+  end if;
+  return new;
+end $$;
+drop trigger if exists folders_guard on public.folders;
+create trigger folders_guard before insert or update on public.folders for each row execute function public.folders_guard();
+alter table public.folders enable row level security;
+drop policy if exists folders_select on public.folders;
+create policy folders_select on public.folders for select to authenticated using (user_id = auth.uid());
+drop policy if exists folders_insert on public.folders;
+create policy folders_insert on public.folders for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists folders_update on public.folders;
+create policy folders_update on public.folders for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists folders_delete on public.folders;
+create policy folders_delete on public.folders for delete to authenticated using (user_id = auth.uid());
+revoke all on public.folders from anon;
+grant select, insert, update, delete on public.folders to authenticated;
+grant all on public.folders to service_role;
+
+alter table public.notes add column if not exists folder_id uuid references public.folders(id) on delete set null;   -- null = Chưa phân loại
+alter table public.notes add column if not exists tags text[] not null default '{}';
+do $$ begin
+  alter table public.notes add constraint notes_tags_limit check (cardinality(tags) <= 12);
+exception when duplicate_object then null; end $$;
+create index if not exists notes_folder_idx on public.notes (user_id, folder_id);
+-- Ghi chú chỉ được đặt vào thư mục của chính mình
+drop policy if exists notes_insert on public.notes;
+create policy notes_insert on public.notes for insert to authenticated with check (
+  user_id = auth.uid() and (folder_id is null or exists (select 1 from public.folders f where f.id = folder_id and f.user_id = auth.uid())));
+drop policy if exists notes_update on public.notes;
+create policy notes_update on public.notes for update to authenticated using (user_id = auth.uid()) with check (
+  user_id = auth.uid() and (folder_id is null or exists (select 1 from public.folders f where f.id = folder_id and f.user_id = auth.uid())));
+
+-- Thư mục mẫu do quản trị viên quản lý; người dùng bấm “Tạo thư mục mẫu” để chép sang thư mục của mình.
+create table if not exists public.folder_templates (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null unique check (char_length(btrim(name)) between 1 and 60),
+  color       text check (color is null or color ~ '^[a-z]{2,16}$'),
+  icon        text check (icon is null or char_length(icon) <= 16),
+  sort        int not null default 0,
+  updated_at  timestamptz not null default now()
+);
+alter table public.folder_templates enable row level security;
+drop policy if exists ftpl_select on public.folder_templates;
+create policy ftpl_select on public.folder_templates for select to authenticated using (true);
+drop policy if exists ftpl_write on public.folder_templates;
+create policy ftpl_write on public.folder_templates for all to authenticated using (public.is_admin()) with check (public.is_admin());
+revoke all on public.folder_templates from anon, authenticated;
+grant select, insert, update, delete on public.folder_templates to authenticated;
+grant all on public.folder_templates to service_role;
+insert into public.folder_templates (name, color, icon, sort)
+select * from (values ('Công việc', 'sky', '💼', 1), ('Cá nhân', 'rose', '🏠', 2), ('Tài chính', 'butter', '💰', 3), ('Sức khỏe', 'mint', '❤️', 4), ('Ý tưởng', 'lavender', '💡', 5)) v(name, color, icon, sort)
+where not exists (select 1 from public.folder_templates);
+
+-- Chép thư mục mẫu sang thư mục của người dùng (bỏ qua tên đã có). Trả về số thư mục mới.
+create or replace function public.create_template_folders()
+returns int language plpgsql security invoker set search_path = public as $$
+declare n int; base int;
+begin
+  if auth.uid() is null then raise exception 'Cần đăng nhập' using errcode = '42501'; end if;
+  select coalesce(max(sort), 0) into base from public.folders where user_id = auth.uid() and parent_id is null;
+  insert into public.folders (user_id, name, color, icon, sort)
+  select auth.uid(), t.name, t.color, t.icon, base + row_number() over (order by t.sort, t.name)
+  from public.folder_templates t
+  where not exists (select 1 from public.folders f where f.user_id = auth.uid() and f.parent_id is null and lower(f.name) = lower(btrim(t.name)));
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke all on function public.create_template_folders() from public, anon;
+grant execute on function public.create_template_folders() to authenticated;
+
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'folders') then
+    alter publication supabase_realtime add table public.folders;
+  end if;
+end $$;
+
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

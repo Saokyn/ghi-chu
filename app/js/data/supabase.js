@@ -6,7 +6,7 @@ import { mergeAi } from './local.js';
 
 const BUCKET = 'note-images';
 let prefsQueue = Promise.resolve();
-const NOTE_COLS_BASE = 'id,user_id,type,title,content,image_path,url,link_meta,ai_source,pinned,line_times,created_at,updated_at';
+const NOTE_COLS_BASE = 'id,user_id,type,title,content,image_path,url,link_meta,ai_source,pinned,line_times,folder_id,tags,created_at,updated_at';
 // Cột "color" (màu ghi chú) được thêm ở bản 2 của schema.sql. Nếu dự án chưa chạy lại schema.sql thì
 // PostgREST báo thiếu cột → ứng dụng tự chuyển sang lưu màu trên máy này (localStorage) và vẫn chạy bình thường.
 const isMissingColor = (e) => !!e && (e.code === '42703' || e.code === 'PGRST204' || (/color/i.test(e.message || '') && /column|schema cache/i.test(e.message || '')));
@@ -262,6 +262,33 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunc
       },
       async remove(id) { need(); must(await sb.from('announcements').delete().eq('id', id)); },
       subscribe(cb) { const ch = sb.channel('announcements').on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => cb()).subscribe(); return () => sb.removeChannel(ch); },
+    },
+    folders: {
+      // Lỗi trùng tên (unique index) → thông báo tiếng Việt giống bản demo
+      _dup(r, name) { if (r.error && (r.error.code === '23505' || /duplicate key/i.test(r.error.message || ''))) throw new Error('Đã có thư mục tên “' + String(name || '').trim() + '” ở cùng cấp.'); return r; },
+      async list() { need(); return must(await sb.from('folders').select('*').order('sort').limit(500)); },
+      async create(f) { need(); return must(this._dup(await sb.from('folders').insert({ user_id: user.id, name: f.name, color: f.color || null, icon: f.icon || null, parent_id: f.parent_id || null, ...(f.sort != null ? { sort: f.sort } : {}) }).select('*').single(), f.name)); },
+      async update(id, patch) { need(); const p = Object.assign({}, patch); delete p.id; delete p.user_id; return must(this._dup(await sb.from('folders').update(p).eq('id', id).select('*').single(), p.name)); },
+      async remove(id) { need(); must(await sb.from('folders').delete().eq('id', id)); },
+      async fromTemplates() { need(); return must(await sb.rpc('create_template_folders')); },
+      subscribe(cb) { need(); const ch = sb.channel('folders:' + user.id).on('postgres_changes', { event: '*', schema: 'public', table: 'folders', filter: `user_id=eq.${user.id}` }, () => cb()).subscribe(); return () => sb.removeChannel(ch); },
+    },
+    folderTemplates: {
+      async list() { return must(await sb.from('folder_templates').select('*').order('sort')); },
+      // Admin lưu cả danh sách: xoá mục bị bỏ, cập nhật/ thêm mục còn lại theo thứ tự
+      async save(list) {
+        need(); const cur = must(await sb.from('folder_templates').select('id'));
+        const keep = new Set(list.filter(t => t.id).map(t => t.id));
+        const del = cur.filter(t => !keep.has(t.id)).map(t => t.id);
+        if (del.length) must(await sb.from('folder_templates').delete().in('id', del));
+        // đặt tên tạm trước để tránh trùng unique khi đổi chỗ tên
+        for (const t of list.filter(t => t.id)) must(await sb.from('folder_templates').update({ name: '~' + t.id }).eq('id', t.id));
+        for (const [i, t] of list.entries()) {
+          const row = { name: String(t.name).trim(), color: t.color || null, icon: t.icon || null, sort: i + 1, updated_at: nowIso() };
+          must(await (t.id ? sb.from('folder_templates').update(row).eq('id', t.id) : sb.from('folder_templates').insert(row)));
+        }
+        return api.folderTemplates.list();
+      },
     },
     push: {
       available: true,
