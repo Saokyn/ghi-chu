@@ -4,7 +4,7 @@ import { chromium } from 'playwright-core';
 import fs from 'node:fs';
 const BASE = process.env.BASE || 'http://127.0.0.1:5180/';
 const OUT = new URL('../../out/real/', import.meta.url).pathname; fs.mkdirSync(OUT, { recursive: true });
-const EMAIL = 'hoaingoctruyenky74@gmail.com';
+const EMAIL = process.env.TEST_EMAIL;
 const PW = fs.readFileSync(new URL('../../.test-password', import.meta.url), 'utf8').trim();
 const ONLY = process.env.ONLY || '';
 const results = []; const errors = []; let step = '';

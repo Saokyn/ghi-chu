@@ -20,11 +20,11 @@ try {
   check(info.font, 'phông Be Vietnam Pro đã tải');
   check(info.tag === 'Nghĩ là ghi, cần là thấy', 'khẩu hiệu từ app_settings: ' + info.tag);
   await p.waitForTimeout(500); await p.screenshot({ path: OUT + '01-dang-nhap-live.png' });
-  await p.fill('input[name=email]', 'hoaingoctruyenky74@gmail.com'); await p.fill('input[name=password]', PW);
+  await p.fill('input[name=email]', process.env.TEST_EMAIL); await p.fill('input[name=password]', PW);
   await p.click('form button[type=submit]'); await p.waitForSelector('#content');
   await p.waitForFunction(() => window.__app?.entered && window.__app.sync === 'ok', null, { timeout: 20000 }).catch(() => {});
   const st = await p.evaluate(() => ({ email: window.__app.user?.email, role: window.__app.user?.role, sync: window.__app.sync, n: window.__app.notes.length }));
-  check(st.email === 'hoaingoctruyenky74@gmail.com', `đăng nhập được (vai trò ${st.role}, ${st.n} ghi chú, realtime: ${st.sync})`);
+  check(st.email === process.env.TEST_EMAIL, `đăng nhập được (vai trò ${st.role}, ${st.n} ghi chú, realtime: ${st.sync})`);
   if (await p.locator('[data-view=list]:visible').count()) await p.click('[data-view=list]:visible');
   await p.waitForTimeout(800); await p.screenshot({ path: OUT + '02-danh-sach-live.png' });
   await p.goto(LIVE + '#/cai-dat/tai-khoan'); await p.click('[data-s=signout]'); await p.click('.modal [data-c=yes]'); await p.waitForSelector('.auth');

@@ -5,7 +5,7 @@ const U = 'https://gcjincowezbjynoasfsk.supabase.co', K = 'sb_publishable_nS0cRW
 const PW = fs.readFileSync(new URL('../../.test-password', import.meta.url), 'utf8').trim();
 const ORIGINAL = { app_name: 'Ghi Chú', tagline: 'Ghi nhanh · nhớ lâu', logo_data: null, primary_color: '#4f46e5', dark_accent: '#2dd4bf', font: 'bvp', default_layout: 'list', default_theme: 'light', radius: 14, density: 'comfortable', allow_user_theme: true, allow_signup: true };
 const dry = process.argv.includes('--check');
-const t = await (await fetch(U + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: K, 'content-type': 'application/json' }, body: JSON.stringify({ email: 'hoaingoctruyenky74@gmail.com', password: PW }) })).json();
+const t = await (await fetch(U + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: K, 'content-type': 'application/json' }, body: JSON.stringify({ email: process.env.TEST_EMAIL, password: PW }) })).json();
 const uid = t.user.id, H = { apikey: K, Authorization: 'Bearer ' + t.access_token, 'content-type': 'application/json' };
 const j = async (r) => { const s = await r.text(); try { return JSON.parse(s); } catch { return s; } };
 const notes = await j(await fetch(U + '/rest/v1/notes?select=id,title,image_path', { headers: H }));

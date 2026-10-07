@@ -2,7 +2,7 @@
 // Mật khẩu đọc từ .test-password, không in ra.
 import fs from 'node:fs';
 const URL_ = 'https://gcjincowezbjynoasfsk.supabase.co', KEY = 'sb_publishable_nS0cRWRxJTA53nqnNHqVWw_3RBRYAEW';
-const EMAIL = 'hoaingoctruyenky74@gmail.com', PW = fs.readFileSync(new URL('../../.test-password', import.meta.url), 'utf8').trim();
+const EMAIL = process.env.TEST_EMAIL, PW = fs.readFileSync(new URL('../../.test-password', import.meta.url), 'utf8').trim();
 const mode = process.argv[2] || 'check';
 const r = await fetch(URL_ + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: KEY, 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PW }) });
 const tok = await r.json(); if (!tok.access_token) { console.log('Đăng nhập REST thất bại', r.status, tok.error_code || tok.msg); process.exit(1); }
