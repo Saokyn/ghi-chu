@@ -3,7 +3,7 @@
 // dòng mới/đã sửa chưa lưu → nhãn "chưa lưu".
 import { uuid, esc, toast, nowIso, imageFromPaste, prepareImage, normalizeUrlInput, safeUrl, domainOf, isUrlOnly } from '../util.js';
 import { icon } from '../icons.js';
-import { formatDateTime, formatShort } from '../format.js';
+import { formatDateTime, formatShort, formatStamp } from '../format.js';
 import { NOTE_TYPES } from '../defaults.js';
 import { computeLineTimes, lineStatus, effectiveLineTimes, splitLines } from '../lineTimes.js';
 import { confirmDialog } from './dialogs.js';
@@ -122,7 +122,7 @@ export class Editor {
   renderMeta() {
     const s = this.saved;
     this.q('.meta2').innerHTML = s
-      ? `<span>${icon('plus', 13)}Tạo lúc <b>${formatDateTime(s.created_at)}</b></span><span>${icon('edit', 13)}Cập nhật <b>${formatDateTime(s.updated_at)}</b></span><span>${icon('history', 13)}${new Set(effectiveLineTimes(s).map(x => x.t)).size} lần lưu có thay đổi dòng</span>`
+      ? `<span>${icon('plus', 13)}Tạo lúc <b>${formatStamp(s.created_at)}</b></span><span>${icon('edit', 13)}Cập nhật <b>${formatStamp(s.updated_at)}</b></span><span>${icon('history', 13)}${new Set(effectiveLineTimes(s).map(x => x.t)).size} lần lưu có thay đổi dòng</span>`
       : `<span>${icon('plus', 13)}Ghi chú mới · chưa lưu</span>`;
     this.q('.st-sync').innerHTML = this.app.data.mode === 'demo'
       ? `${icon('cloudoff', 14)}Chế độ demo · lưu trên máy này`

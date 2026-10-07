@@ -70,6 +70,8 @@ function displayTab(box, app) {
       <div class="seg">${Object.entries(LAYOUTS).map(([k, l]) => `<button class="${view === k ? 'on' : ''}" data-v="${k}">${icon(k === 'list' ? 'list' : k === 'grid' ? 'grid' : 'columns', 15)}${l}</button>`).join('')}</div></div>
     <div class="tr"><div><b>Hiện thời gian theo dòng</b><small>Trong trình soạn, mỗi dòng hiện thời gian của lần lưu làm dòng đó thay đổi</small></div>
       <button class="sw ${app.prefs.showLineTimes !== false ? 'on' : ''}" data-lt role="switch" aria-label="Hiện thời gian theo dòng"></button></div>
+    <div class="tr"><div><b>Hiện ngày âm lịch cạnh thời gian</b><small>Thêm ngày âm (ví dụ “27/8 ÂL”) sau thời gian tạo/sửa của ghi chú</small></div>
+      <button class="sw ${app.prefs.showLunar ? 'on' : ''}" data-lunar role="switch" aria-checked="${!!app.prefs.showLunar}" aria-label="Hiện ngày âm lịch cạnh thời gian"></button></div>
     <div class="tr" style="display:block"><div><b>Mặt giấy đọc & soạn</b><small>Màu nền và màu chữ dịu mắt cho vùng viết ghi chú, tách biệt với màu giao diện</small></div>
       <div class="rths" role="radiogroup" aria-label="Mặt giấy đọc và soạn">${[['auto', 'Tự động', 'Giấy ấm / Tối ấm theo chủ đề'], ...READING_KEYS.map(k => [k, READING[k].name, READING_DESC[k]])].map(([k, n, d]) => {
         const on = (app.prefs.readingTheme || 'auto') === k;
@@ -83,6 +85,8 @@ function displayTab(box, app) {
     if (v) { app.savePrefs({ view: v.dataset.v }); app.paneEditor?.destroy(); app.paneEditor = null; displayTab(box, app); toast('Đã đổi kiểu xem: ' + LAYOUTS[v.dataset.v]); return; }
     const rt = e.target.closest('[data-rt]');
     if (rt) { app.savePrefs({ readingTheme: rt.dataset.rt }); app.applyTheme(); displayTab(box, app); toast('Mặt giấy: ' + (READING[rt.dataset.rt]?.name || 'Tự động')); return; }
+    const lu = e.target.closest('[data-lunar]');
+    if (lu) { const on = !lu.classList.contains('on'); lu.classList.toggle('on', on); lu.setAttribute('aria-checked', on); app.savePrefs({ showLunar: on }); toast(on ? 'Đã bật ngày âm lịch cạnh thời gian' : 'Đã tắt ngày âm lịch cạnh thời gian'); return; }
     const lt = e.target.closest('[data-lt]');
     if (lt) { const on = !lt.classList.contains('on'); lt.classList.toggle('on', on); app.savePrefs({ showLineTimes: on }); toast(on ? 'Đã bật thời gian theo dòng' : 'Đã tắt thời gian theo dòng'); }
   };

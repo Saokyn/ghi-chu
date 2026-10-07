@@ -1,7 +1,9 @@
 // Vẽ danh sách ghi chú: Danh sách (mockup A), Lưới thẻ (mockup B), Hai cột (mockup C).
 import { esc, fold, domainOf, safeUrl } from '../util.js';
 import { icon } from '../icons.js';
-import { formatDateTime } from '../format.js';
+import { formatDateTime, formatStamp } from '../format.js';
+import { vnDateKey } from '../lunar.js';
+import { describeDay } from './calendar.js';
 import { NOTE_TYPES } from '../defaults.js';
 import { splitLines } from '../lineTimes.js';
 import { noteColor } from '../palette.js';
@@ -40,8 +42,9 @@ function ncData(n) { return `data-color="${noteColor(n)}"`; }
 const favColor = d => ['#15803d', '#9f1239', '#0369a1', '#6d28d9', '#c2410c', '#0e7490', '#a16207'][[...d].reduce((a, c) => a + c.charCodeAt(0), 0) % 7];
 
 export function filterNotes(app) {
-  const { nav, q } = app.filter;
+  const { nav, q, day } = app.filter;
   let list = app.notes;
+  if (day) list = list.filter(n => vnDateKey(n.created_at) === day);
   if (nav === 'pinned') list = list.filter(n => n.pinned);
   else if (NOTE_TYPES[nav]) list = list.filter(n => n.type === nav);
   const words = fold(q).trim().split(/\s+/).filter(Boolean);
@@ -66,7 +69,13 @@ function chipsHTML(app) {
   const C = [['all', 'Tất cả'], ['text', 'Văn bản'], ['image', 'Hình ảnh'], ['link', 'Link'], ['ai', 'AI']];
   return `<div class="chips" role="tablist">${C.map(([k, l]) => `<button class="chip ${f === k || (k === 'all' && f === 'pinned' && false) ? 'on' : ''}" data-nav="${k}">${l}</button>`).join('')}${f === 'pinned' ? `<button class="chip on" data-nav="pinned">${icon('pin', 13)}Đã ghim</button>` : ''}</div>`;
 }
+export function dayChipHTML(app) {
+  if (!app.filter.day) return '';
+  const d = describeDay(app.filter.day);
+  return `<span class="daychip">${icon('calendar', 14)}<span>${esc(d.text)}${d.holidays.length ? ' · ' + esc(d.holidays.map(h => h.name).join(', ')) : ''}</span><button data-act="dayclear" title="Bỏ lọc theo ngày" aria-label="Bỏ lọc theo ngày">${icon('x', 13)}</button></span>`;
+}
 function emptyHTML(app) {
+  if (app.filter.day && !filterNotes(app).length) return `<div class="empty"><div class="ei">${icon('calendar', 28)}</div><b>Không có ghi chú nào tạo trong ngày này</b>${esc(describeDay(app.filter.day).text)}<br><button class="btn" data-act="dayclear">Bỏ lọc theo ngày</button></div>`;
   if (app.filter.q) return `<div class="empty"><div class="ei">${icon('search', 28)}</div><b>Không tìm thấy ghi chú phù hợp</b>Thử từ khoá khác (tìm theo tiêu đề và nội dung, không phân biệt dấu).</div>`;
   if (app.notes.length) return `<div class="empty"><div class="ei">${icon('notes', 28)}</div><b>Chưa có ghi chú loại này</b>Bấm “Thêm mới” để tạo.</div>`;
   return `<div class="empty"><div class="ei">${icon('notes', 28)}</div><b>Chưa có ghi chú nào</b>Ghi nhanh văn bản, dán ảnh, lưu đường link hoặc nhờ AI tóm tắt.<br><button class="btn pri" data-act="new">${icon('plus', 16, 2.4)}Tạo ghi chú đầu tiên</button></div>`;
@@ -75,14 +84,14 @@ function emptyHTML(app) {
 export function notesAreaHTML(app, view) {
   if (view === 'twopane') {
     return `<div class="tp"><section class="lp">
-      <div class="lh" id="lp-head"><h2>Ghi chú<small>${app.notes.length}</small></h2></div>
+      <div class="lh" id="lp-head"><h2>Ghi chú<small>${app.notes.length}</small></h2>${dayChipHTML(app)}</div>
       <div class="tabs">${[['all', 'Tất cả'], ['text', 'Văn bản'], ['image', 'Ảnh'], ['link', 'Link'], ['ai', 'AI']].map(([k, l]) => `<button class="${app.filter.nav === k || (app.filter.nav === 'pinned' && k === 'all') ? 'on' : ''}" data-nav="${k}">${l}</button>`).join('')}</div>
       <div class="scroll" id="lp-list">${twoPaneListHTML(app)}</div>
     </section><section class="ed-pane" id="ed-pane"></section></div>`;
   }
   const list = filterNotes(app);
   const last = app.notes.reduce((m, n) => (n.updated_at > m ? n.updated_at : m), '');
-  return `<div class="head" id="notes-head"><div><h1>${esc(FILTER_TITLES[app.filter.nav] || 'Ghi chú')}</h1><p>${list.length} ghi chú${app.filter.q ? ` khớp “${esc(app.filter.q)}”` : ''}${last ? ' · cập nhật lần cuối lúc ' + formatDateTime(last) : ''}</p></div>${chipsHTML(app)}</div>
+  return `<div class="head" id="notes-head"><div><h1>${esc(FILTER_TITLES[app.filter.nav] || 'Ghi chú')}</h1><p>${list.length} ghi chú${app.filter.q ? ` khớp “${esc(app.filter.q)}”` : ''}${app.filter.day ? ' tạo trong ngày' : ''}${last ? ' · cập nhật lần cuối lúc ' + formatDateTime(last) : ''}</p>${dayChipHTML(app)}</div>${chipsHTML(app)}</div>
   <div id="region">${listRegionHTML(app, view)}</div>`;
 }
 
@@ -95,7 +104,7 @@ export function listRegionHTML(app, view) {
 
 function metaHTML(n, sz = 12) {
   const d = n.type === 'link' ? domainOf(n.url) : sourceUrl(n) ? domainOf(n.ai_source) : '';
-  return `<span>${icon('plus', sz)}Tạo ${formatDateTime(n.created_at)}</span><span>${icon('edit', sz)}Sửa ${formatDateTime(n.updated_at)}</span>${d ? `<span>${icon('link', sz)}${esc(d)}</span>` : ''}`;
+  return `<span>${icon('plus', sz)}Tạo ${formatStamp(n.created_at)}</span><span>${icon('edit', sz)}Sửa ${formatStamp(n.updated_at)}</span>${d ? `<span>${icon('link', sz)}${esc(d)}</span>` : ''}`;
 }
 function actsHTML(n, sz = 17) {
   return `<button class="ib" data-act="copy" data-id="${n.id}" title="Sao chép văn bản" aria-label="Sao chép">${icon('copy', sz)}</button>`
@@ -118,7 +127,7 @@ function cardHTML(n, app) {
   const T = NOTE_TYPES[n.type] || NOTE_TYPES.text;
   const cls = ncCls(n) + `" ${ncData(n)} data-type="${n.type}`;
   const pin = n.pinned ? `<div class="pin">${icon('pin', 15, 2.4)}</div>` : '';
-  const foot = `<div class="foot"><div class="t"><span>Tạo ${formatDateTime(n.created_at)}</span><span>Sửa ${formatDateTime(n.updated_at)}</span></div><div class="a">${actsHTML(n, 15).replace(/ hov/g, '')}</div></div>`;
+  const foot = `<div class="foot"><div class="t"><span>Tạo ${formatStamp(n.created_at)}</span><span>Sửa ${formatStamp(n.updated_at)}</span></div><div class="a">${actsHTML(n, 15).replace(/ hov/g, '')}</div></div>`;
   const title = `<h3>${esc(titleOf(n))}</h3>`;
   const typ = `<span class="typ">${icon(T.icon, 12, 2.6)}${T.label}</span>`;
   if (n.type === 'image') {

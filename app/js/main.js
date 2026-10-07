@@ -5,9 +5,10 @@ import { createAiClient } from './ai/client.js';
 import { DEFAULT_APP_SETTINGS, DEFAULT_PREFS, FONTS, NOTE_TYPES } from './defaults.js';
 import { $, $$, esc, toast, copyText, fold, initials, imageFromPaste, debounce } from './util.js';
 import { icon } from './icons.js';
-import { formatDateTime } from './format.js';
+import { formatDateTime, setLunarStamps } from './format.js';
+import { clockHTML, startClock, openCalendar } from './ui/calendar.js';
 import { renderAuth, showRecovery } from './ui/auth.js';
-import { notesAreaHTML, listRegionHTML, twoPaneListHTML, hydrateImages, copyTextOf } from './ui/notes.js';
+import { notesAreaHTML, listRegionHTML, twoPaneListHTML, hydrateImages, copyTextOf, dayChipHTML } from './ui/notes.js';
 import { Editor } from './ui/editor.js';
 import { openAddMenu, openImageDialog, openLinkDialog, openAiDialog, openModal, confirmDialog, closeTopModal, modalOpen } from './ui/dialogs.js';
 import { renderSettings } from './ui/settings.js';
@@ -20,7 +21,7 @@ document.head.appendChild(Object.assign(document.createElement('style'), { id: '
 
 const app = window.__app = {
   data: null, ai: null, user: null, prefs: { ...DEFAULT_PREFS }, appSettings: { ...DEFAULT_APP_SETTINGS }, aiSettings: null,
-  notes: [], filter: { nav: 'all', q: '' }, route: { name: 'notes', tab: '' }, selectedId: null,
+  notes: [], reminders: [], filter: { nav: 'all', q: '', day: null }, route: { name: 'notes', tab: '' }, selectedId: null,
   paneEditor: null, modalEditor: null, sync: 'connecting', unsub: null, entered: false,
 };
 
@@ -102,6 +103,7 @@ async function enter(u) {
     app.aiSettings = await app.data.ai.get();
     await app.loadSharedAi();
     app.notes = await app.data.notes.list();
+    setLunarStamps(app.prefs.showLunar);
     applyTheme();
     app.entered = true;
     app.unsub?.();
@@ -199,11 +201,12 @@ function renderShell() {
     </aside>
     <main class="main">
       <div class="mtop">
-        <div class="hd">${logoHTML(s, 17)}<b>${wordmarkHTML(s.app_name)}</b>${syncHTML(true)}${themeBtnHTML()}<button class="av" data-go="#/cai-dat/tai-khoan" title="Tài khoản">${esc(initials(u.email))}</button></div>
+        <div class="hd">${logoHTML(s, 17)}<b>${wordmarkHTML(s.app_name)}</b>${clockHTML(true)}${syncHTML(true)}${themeBtnHTML()}<button class="av" data-go="#/cai-dat/tai-khoan" title="Tài khoản">${esc(initials(u.email))}</button></div>
         ${r.name === 'notes' ? `<div class="search">${icon('search', 18)}<input type="search" data-search placeholder="Tìm ghi chú…" value="${searchVal}" aria-label="Tìm ghi chú"></div>` : ''}
       </div>
       <header class="top">
         <label class="search">${icon('search')}<input type="search" data-search placeholder="Tìm ghi chú, nội dung, đường link…" value="${searchVal}" aria-label="Tìm ghi chú"><span class="kbd">Ctrl K</span></label>
+        ${clockHTML()}
         ${viewSegHTML()}
         ${themeBtnHTML()}
         <button class="btn-add" data-act="add" aria-haspopup="menu">${icon('plus', 18, 2.4)}Thêm mới<span class="chev">${icon('down', 15)}</span></button>
@@ -219,6 +222,7 @@ function renderShell() {
     ${r.name === 'notes' ? `<button class="fab" data-act="add">${icon('plus', 20, 2.6)}Thêm mới</button>` : ''}
   </div>`;
   renderContent();
+  startClock();
 }
 app.renderShell = renderShell;
 
@@ -242,7 +246,7 @@ function renderList() {
   if (view === 'twopane') {
     const sc = $('#lp-list'); if (!sc) return renderContent();
     sc.innerHTML = twoPaneListHTML(app); hydrateImages(sc, app);
-    const head = $('#lp-head'); if (head) head.innerHTML = `<h2>Ghi chú<small>${app.notes.length}</small></h2>`;
+    const head = $('#lp-head'); if (head) head.innerHTML = `<h2>Ghi chú<small>${app.notes.length}</small></h2>${dayChipHTML(app)}`;
     $$('.lp .tabs button').forEach(b => b.classList.toggle('on', b.dataset.nav === app.filter.nav || (app.filter.nav === 'pinned' && b.dataset.nav === 'all')));
     return;
   }
@@ -301,6 +305,12 @@ app.openNote = async (noteOrDraft) => {
   app.modalEditor = ed;
   ed.mount(m.el.querySelector('.dlg'));
   if (noteOrDraft._draft) ed.focusTitle(); else ed.focusContent();
+};
+/** Lọc ghi chú theo ngày tạo (YYYY-MM-DD giờ VN) hoặc bỏ lọc (null) */
+app.setDayFilter = (key) => {
+  app.filter.day = key || null;
+  if (app.route.name !== 'notes') { app.navigate('#/'); return; }
+  renderShell();
 };
 app.newNote = (type = 'text', extra = {}) => app.openNote(Object.assign({ _draft: true, type, title: '', content: '', pinned: false }, extra));
 
@@ -377,6 +387,7 @@ app.copyNote = async (noteLike) => {
 let prefsChain = Promise.resolve();
 app.savePrefs = (patch) => {
   app.prefs = Object.assign({}, app.prefs, patch);
+  setLunarStamps(app.prefs.showLunar);
   const snap = app.prefs;
   prefsChain = prefsChain.then(() => app.data.prefs.save(snap)).catch(e => toast('Không lưu được tùy chọn: ' + e.message, { kind: 'err' }));
   return prefsChain;
@@ -454,6 +465,8 @@ document.addEventListener('click', async e => {
   if (act) {
     e.stopPropagation();
     if (act === 'add') { openAddMenu(app, t); return; }
+    if (act === 'cal') { openCalendar(app); return; }
+    if (act === 'dayclear') { app.setDayFilter(null); return; }
     if (act === 'theme') {
       const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       app.savePrefs({ theme: next }); applyTheme(); renderShell(); return;

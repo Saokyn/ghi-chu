@@ -26,7 +26,7 @@ export const NOTE_TYPES = {
   link: { label: 'Đường link', short: 'Link', icon: 'link' },
   ai: { label: 'AI tóm tắt', short: 'AI', icon: 'ai' },
 };
-export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto' };
+export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto', showLunar: false, reminderSound: true };
 export const DEFAULT_AI = {
   provider: 'xai',
   providers: {},            // { [pid]: { apiKey, baseUrl, model, accountId, useProxy, fetchedModels, fetchedAt, test } }

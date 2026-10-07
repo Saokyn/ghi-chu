@@ -1,0 +1,51 @@
+// Kiểm thử Pha 1 (demo): đồng hồ + lịch âm dương, lọc theo ngày, ngày âm cạnh thời gian. Đồng hồ trình duyệt cố định 07/10/2026 23:30 giờ VN.
+import { chromium } from 'playwright-core';
+import fs from 'node:fs';
+const BASE = process.env.BASE || 'http://127.0.0.1:5180/';
+const OUT = new URL('../../out/live/', import.meta.url).pathname; fs.mkdirSync(OUT, { recursive: true });
+let ok = true; const check = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) ok = false; };
+const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome' });
+const ctx = await b.newContext({ viewport: { width: 1280, height: 860 }, locale: 'vi-VN', timezoneId: 'Asia/Ho_Chi_Minh' });
+const p = await ctx.newPage(); p.setDefaultTimeout(8000);
+const errs = []; p.on('pageerror', e => errs.push(e.message));
+await p.clock.install({ time: new Date('2026-10-07T23:30:00+07:00') });
+try {
+  await p.goto(BASE + '?demo=1'); await p.evaluate(() => localStorage.clear());
+  await p.goto(BASE + '?demo=1'); await p.waitForSelector('.auth');
+  await p.click('[data-m=signup]'); await p.fill('input[name=email]', 'lich.demo@example.com'); await p.fill('input[name=password]', 'matkhau123');
+  await p.click('form button[type=submit]'); await p.waitForSelector('#content .head');
+  const clk = (await p.textContent('.top .clock')).replace(/\s+/g, ' ').trim();
+  check(clk.includes('23:30') && clk.includes('Thứ Tư 07/10/2026') && clk.includes('27/8 Bính Ngọ'), 'thanh trên: ' + clk);
+  await p.screenshot({ path: OUT + 'p1-topbar-demo.png' });
+  await p.click('.top .clock'); await p.waitForSelector('.cal-dlg .cgrid');
+  check((await p.textContent('.cal-dlg h3')).includes('Tháng 10/2026'), 'lịch mở đúng tháng 10/2026');
+  check(await p.locator('.cc.today[data-day="2026-10-07"]').count() === 1, 'ô hôm nay được đánh dấu');
+  check((await p.textContent('.cc[data-day="2026-10-10"] .ld')).trim() === '1/9', '10/10/2026 = mùng 1 tháng 9 ÂL');
+  check(await p.locator('.cc.ram[data-day="2026-10-24"]').count() === 1, '24/10/2026 = rằm tháng 9');
+  check(await p.locator('.cc[data-day="2026-10-07"] .dn').count() === 1, 'chấm ghi chú ở ngày có ghi chú (dữ liệu mẫu)');
+  check((await p.textContent('.chlist')).includes('Phụ nữ Việt Nam'), 'danh sách lễ có 20/10');
+  await p.screenshot({ path: OUT + 'p1-calendar-demo.png' });
+  await p.click('[data-c=prev]');
+  check((await p.textContent('.cc[data-day="2026-09-25"]')).includes('Trung Thu'), 'Tết Trung thu 25/9/2026 (15/8 ÂL)');
+  await p.click('[data-c=today]');
+  await p.click('.cc[data-day="2026-10-07"]'); await p.waitForSelector('.daychip');
+  const n = await p.evaluate(() => window.__app.notes.length), shown = await p.locator('#region [data-open]').count();
+  check(shown > 0 && shown <= n, `lọc theo ngày: ${shown}/${n} ghi chú`);
+  await p.screenshot({ path: OUT + 'p1-dayfilter-demo.png' });
+  await p.click('.daychip [data-act=dayclear]'); await p.waitForTimeout(200);
+  check(await p.locator('.daychip').count() === 0 && await p.locator('#region [data-open]').count() === n, 'bỏ lọc ngày');
+  await p.goto(BASE + '?demo=1#/cai-dat/hien-thi'); await p.waitForSelector('[data-lunar]'); await p.click('[data-lunar]');
+  await p.goto(BASE + '?demo=1#/'); await p.waitForSelector('#region .row,#region .card');
+  check(/\(\d+\/\d+N? ÂL\)/.test(await p.textContent('#region')), 'thời gian ghi chú có ngày âm');
+  // Điện thoại
+  await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(300);
+  const m = (await p.textContent('.mtop .clock')).replace(/\s+/g, ' ').trim();
+  check(m.includes('23:30') && m.includes('27/8'), 'đồng hồ điện thoại: ' + m);
+  await p.screenshot({ path: OUT + 'p1-mobile-demo.png' });
+  await p.click('.mtop .clock'); await p.waitForSelector('.cal-dlg .cgrid');
+  const w = await p.evaluate(() => [document.querySelector('.cal-dlg').getBoundingClientRect().width, document.documentElement.scrollWidth]);
+  check(w[0] <= 390 && w[1] <= 390, 'lịch vừa màn hình điện thoại ' + w.join('/'));
+  await p.screenshot({ path: OUT + 'p1-calendar-mobile-demo.png' });
+} catch (e) { console.error(e); ok = false; await p.screenshot({ path: OUT + 'p1-fail.png' }); }
+check(!errs.length, 'không lỗi JS ' + errs.join(' | '));
+await b.close(); console.log(ok ? 'PASS' : 'FAIL'); process.exit(ok ? 0 : 1);

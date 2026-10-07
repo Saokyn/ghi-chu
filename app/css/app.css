@@ -628,3 +628,53 @@ ol.pts li:before{content:counter(k);flex:none;width:20px;height:20px;border-radi
   .linkcard img{width:96px}
 }
 .pc.nc .k{background:var(--n-chip);color:var(--n-chip-ink)}
+
+/* ============ Đồng hồ + lịch âm dương ============ */
+.clock{display:flex;align-items:center;gap:10px;height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font:inherit;white-space:nowrap}
+.clock:hover{border-color:var(--brand)}
+.clock .ct{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.clock .cd{display:flex;flex-direction:column;line-height:1.15;text-align:left}
+.clock .cd b{font-size:12.5px;font-weight:600}.clock .cd small{font-size:11.5px;color:var(--ink3)}
+.clock.sm{height:auto;padding:3px 8px;gap:0;flex-direction:column;align-items:flex-start;line-height:1.1;margin-left:auto;border-radius:10px}
+.clock.sm b{font-size:13px;font-variant-numeric:tabular-nums}.clock.sm span{font-size:10.5px;color:var(--ink3)}
+.mtop .clock.sm + .sync{margin-left:6px}
+@media (max-width:1100px){.top .clock .cd small{display:none}}
+@media (max-width:960px){.top .clock .cd{display:none}}
+.cal-dlg{max-width:620px;width:calc(100vw - 24px)}
+.cal-dlg .dh{display:flex;align-items:center;gap:8px}
+.cal-dlg .dh h3{flex:1;min-width:0}.cal-dlg .dh h3 small{display:block;font-size:12px;font-weight:500;color:var(--ink3);margin-top:2px}
+.cal-dlg .tic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand);flex:none}
+.cgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cgrid .cw{text-align:center;font-size:11.5px;font-weight:600;color:var(--ink3);padding:4px 0}
+.cgrid .cc{position:relative;min-height:62px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);padding:5px 6px;display:flex;flex-direction:column;align-items:flex-start;cursor:pointer;font:inherit;text-align:left;overflow:hidden}
+.cgrid .cc.empty{border:0;background:none;cursor:default}
+.cgrid .cc:hover{border-color:var(--brand)}
+.cgrid .cc .sd{font-size:15px;font-weight:700;line-height:1}
+.cgrid .cc .ld{font-size:11px;color:var(--ink3);margin-top:2px}
+.cgrid .cc .hn{font-size:9.5px;line-height:1.15;color:#b91c1c;margin-top:auto;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cgrid .cc.sun .sd{color:#dc2626}
+.cgrid .cc.m1 .ld{color:#b45309;font-weight:700}
+.cgrid .cc.ram .ld{color:#7c3aed;font-weight:700}
+.cgrid .cc.big{background:color-mix(in srgb,#ef4444 9%,var(--card))}.cgrid .cc.big .sd{color:#dc2626}
+.cgrid .cc.today{border:2px solid var(--brand);padding:4px 5px}
+.cgrid .cc.sel{background:color-mix(in srgb,var(--brand) 16%,var(--card))}
+.cgrid .dots{position:absolute;top:6px;right:6px;display:flex;gap:3px}
+.cgrid .dots i,.clegend i{width:7px;height:7px;border-radius:50%;display:inline-block}
+i.dn{background:var(--brand)}i.dr{background:#f59e0b}
+.cinfo{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--bg);font-size:13.5px}
+.chol{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.chol .tag{font-size:12px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,#ef4444 12%,transparent);color:#b91c1c}
+[data-theme=dark] .chol .tag,[data-theme=dark] .cgrid .cc .hn{color:#fca5a5}
+.clegend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12px;color:var(--ink3)}.clegend span{display:flex;align-items:center;gap:5px}
+.clegend .lg-m1{color:#b45309}.clegend .lg-ram{color:#7c3aed}.clegend .lg-big{color:#dc2626}
+.chlist{margin-top:12px;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.chlist b{margin-bottom:4px}.chlist button{display:flex;gap:10px;align-items:baseline;text-align:left;background:none;border:0;padding:5px 6px;border-radius:8px;color:var(--ink);cursor:pointer;font:inherit}
+.chlist button:hover{background:var(--bg)}.chlist button span{font-weight:700;font-variant-numeric:tabular-nums;color:#dc2626;min-width:44px}
+.daychip{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px 4px 10px;border-radius:999px;background:color-mix(in srgb,var(--brand) 13%,transparent);color:var(--ink);font-size:12.5px;max-width:100%}
+.daychip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.daychip button{border:0;background:none;color:inherit;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;cursor:pointer;flex:none}.daychip button:hover{background:color-mix(in srgb,var(--ink) 12%,transparent)}
+.lp .lh{flex-wrap:wrap}
+@media (max-width:760px){
+  .cgrid{gap:2px}.cgrid .cc{min-height:50px;padding:3px 4px;border-radius:8px}.cgrid .cc.today{padding:2px 3px}
+  .cgrid .cc .sd{font-size:14px}.cgrid .cc .hn{display:none}.cgrid .dots{top:4px;right:4px}
+  .cal-dlg .dh .btn.sm{display:none}
+}
