@@ -5,6 +5,7 @@ import { icon } from '../icons.js';
 import { formatDateTime } from '../format.js';
 import { DEFAULT_APP_SETTINGS, FONTS, LAYOUTS } from '../defaults.js';
 import { confirmDialog } from './dialogs.js';
+import { PROVIDERS, PROVIDER_IDS, providerConf } from '../ai/providers.js';
 
 const SWATCHES = ['#4f46e5', '#059669', '#0ea5e9', '#e11d48', '#f97316', '#a855f7', '#ca8a04', '#111827'];
 const DARK_SWATCHES = ['#2dd4bf', '#34d399', '#38bdf8', '#818cf8', '#f472b6', '#fbbf24'];
@@ -14,6 +15,7 @@ function fmtBytes(b) { if (!b) return '0 KB'; const u = ['B', 'KB', 'MB', 'GB'];
 export function renderAdmin(el, app, tab) {
   if (app.user.role !== 'admin') { el.innerHTML = `<div class="empty"><div class="ei">${icon('lock', 28)}</div><b>Chỉ quản trị viên mới xem được trang này</b></div>`; return; }
   if (tab === 'nguoi-dung') return usersPage(el, app);
+  if (tab === 'ai-dung-chung') return sharedAiPage(el, app);
   return themePage(el, app);
 }
 
@@ -32,6 +34,7 @@ async function usersTableHTML(app, limit, editable) {
     const list = (await app.data.admin.listUsers()).slice(0, limit);
     return `<table class="utable">${list.map(u => `<tr><td><span class="ua" style="background:${avColor(u.email)}">${esc(initials(u.email))}</span>${esc(u.email)}${u.role === 'admin' && !editable ? '<span class="role">Admin</span>' : ''}</td>
       <td class="r">${u.note_count ?? 0} ghi chú</td><td class="r">${formatDateTime(u.last_active)}</td>
+      ${editable ? `<td class="r">${u.role === 'admin' ? '<span class="muted" style="font-size:12px">Admin · luôn tự chọn AI</span>' : `<label class="tgl" style="display:inline-flex;gap:8px;align-items:center;font-size:12.5px;white-space:nowrap">Cho tự chọn AI <button class="sw ${u.allow_custom_ai ? 'on' : ''}" data-allow="${u.id}" data-on="${u.allow_custom_ai ? 1 : 0}" role="switch" aria-checked="${!!u.allow_custom_ai}" aria-label="Cho ${esc(u.email)} tự chọn AI"></button></label>`}</td>` : ''}
       ${editable ? `<td class="r"><select data-role="${u.id}" aria-label="Vai trò"><option value="user" ${u.role !== 'admin' ? 'selected' : ''}>Người dùng</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option></select></td>` : ''}</tr>`).join('') || '<tr><td class="muted">Chưa có người dùng</td></tr>'}</table>`;
   } catch (e) { return `<div class="err-t">Không tải được danh sách: ${esc(e.message)}</div>`; }
 }
@@ -146,9 +149,92 @@ async function usersPage(el, app) {
   el.querySelector('#u-stats').innerHTML = await statsHTML(app);
   const draw = async () => { el.querySelector('#u-list').innerHTML = await usersTableHTML(app, 500, true); };
   await draw();
+  el.onclick = async e => {
+    const b = e.target.closest('[data-allow]'); if (!b) return;
+    const allow = b.dataset.on !== '1'; b.disabled = true;
+    try { await app.data.sharedAi.setAllowCustom(b.dataset.allow, allow); toast(allow ? 'Đã cho phép tự chọn AI' : 'Đã tắt quyền tự chọn AI'); } catch (err) { toast(err.message, { kind: 'err' }); }
+    draw();
+  };
   el.onchange = async e => {
     const s = e.target.closest('[data-role]'); if (!s) return;
     if (s.dataset.role === app.user.id && s.value !== 'admin' && !(await confirmDialog('Bỏ quyền admin của chính bạn? Bạn sẽ không vào lại được trang này.', { okText: 'Bỏ quyền', danger: true }))) { draw(); return; }
     try { await app.data.admin.setRole(s.dataset.role, s.value); toast('Đã cập nhật vai trò'); } catch (err) { toast(err.message, { kind: 'err' }); draw(); }
+  };
+}
+
+/* ============================== AI dùng chung ============================== */
+// Admin cài một nhà cung cấp + model + key cho mọi người. Key được gửi thẳng vào hàm admin_set_shared_ai
+// và lưu ở bảng shared_ai (không ai đọc lại được qua API — chỉ Edge Function ai-proxy dùng). Ở đây chỉ hiện 4 ký tự cuối.
+async function sharedAiPage(el, app) {
+  el.innerHTML = `<div class="page" style="max-width:980px"><div class="ph"><h1>AI dùng chung</h1><span class="adm">${icon('shield', 12, 2.6)}ADMIN</span></div><div id="sa"><span class="spin"></span></div></div>`;
+  const box = el.querySelector('#sa');
+  let sh; try { sh = await app.data.sharedAi.get(); } catch (e) { box.innerHTML = `<div class="callout warn">${icon('alert', 16)}<div>Không tải được cấu hình: ${esc(e.message)}</div></div>`; return; }
+  const f = { provider: sh.provider || 'discovery', model: sh.model || '', base_url: sh.base_url || '', account_id: sh.account_id || '', api_key: '',
+    enabled: !!sh.raw_enabled, limit_hour: sh.limit_hour ?? 30, limit_day: sh.limit_day ?? 200, default_allow_custom: !!sh.default_allow_custom };
+  let busy = '', testMsg = null;
+  const mine = () => providerConf(app.aiSettings, app.aiSettings.provider);
+  const draw = () => {
+    const P = PROVIDERS[f.provider] || PROVIDERS.custom;
+    const m = mine(), mp = PROVIDERS[app.aiSettings.provider];
+    box.innerHTML = `
+    <div class="card" data-shared-admin>
+      <div class="ch"><div><h3>${icon('ai', 17)}Cấu hình AI dùng chung</h3><p>Người dùng chưa được “Cho tự chọn AI” sẽ dùng cấu hình này cho mọi tính năng AI. Họ chỉ thấy tên nhà cung cấp và model — <b>không bao giờ thấy key</b>.</p></div>
+        ${sh.enabled ? `<span class="bdg ok">${icon('check', 12, 3)}Đang bật</span>` : '<span class="bdg mut">Đang tắt</span>'}</div>
+      <div class="tr" style="border-top:0;padding-top:0"><div><b>Bật AI dùng chung</b><small>Tắt: người dùng không có quyền tự chọn sẽ chỉ có “tóm tắt nhanh trên máy”.</small></div><button class="sw ${f.enabled ? 'on' : ''}" data-a="enabled" role="switch" aria-checked="${f.enabled}" aria-label="Bật AI dùng chung"></button></div>
+      <div class="row2 field"><label><span class="lbl">Nhà cung cấp</span><select class="inp" data-f="provider">${PROVIDER_IDS.map(id => `<option value="${id}" ${id === f.provider ? 'selected' : ''}>${esc(PROVIDERS[id].name)}</option>`).join('')}</select></label>
+        <label><span class="lbl">Model</span><input class="inp mono" data-f="model" value="${esc(f.model)}" placeholder="${esc(P.model || 'tên model')}" list="sa-models" spellcheck="false"><datalist id="sa-models">${(P.models || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist></label></div>
+      <label class="field"><span class="lbl">Địa chỉ API (Base URL)<span class="muted" style="font-weight:500;font-size:12px">Để trống = mặc định của nhà cung cấp</span></span><input class="inp mono" data-f="base_url" value="${esc(f.base_url)}" placeholder="${esc(P.baseUrl || 'https://…/v1')}" spellcheck="false"></label>
+      ${P.needsAccount ? `<label class="field"><span class="lbl">Account ID (Cloudflare)</span><input class="inp mono" data-f="account_id" value="${esc(f.account_id)}" spellcheck="false"></label>` : ''}
+      <label class="field"><span class="lbl">API key</span><div class="inpw">${icon('lock', 16)}<input class="inp mono" data-f="api_key" type="password" value="" autocomplete="new-password" spellcheck="false" placeholder="${sh.has_key ? 'Đã lưu key ••••' + esc(sh.key_last4 || '') + ' — để trống để giữ nguyên' : esc(P.keyHint || 'Dán API key')}"></div>
+        <div class="help">Key được lưu trên máy chủ (bảng không ai đọc được qua API) và chỉ Edge Function dùng. Sau khi lưu, ngay cả quản trị viên cũng chỉ thấy 4 ký tự cuối.${sh.has_key ? ' <button class="lk" data-a="clearkey">Xoá key</button>' : ''}</div></label>
+      <div class="row2 field"><label><span class="lbl">Giới hạn mỗi người / giờ</span><input class="inp" type="number" min="0" max="10000" data-f="limit_hour" value="${f.limit_hour}"></label><label><span class="lbl">Giới hạn mỗi người / ngày</span><input class="inp" type="number" min="0" max="100000" data-f="limit_day" value="${f.limit_day}"></label></div>
+      <div class="tr"><div><b>Mặc định cho mọi người tự chọn AI</b><small>Bật: tất cả người dùng đều được dùng AI riêng (vẫn có thể chọn AI dùng chung). Tắt: chỉ người được bật trong trang Người dùng.</small></div><button class="sw ${f.default_allow_custom ? 'on' : ''}" data-a="defallow" role="switch" aria-checked="${f.default_allow_custom}" aria-label="Mặc định cho tự chọn AI"></button></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px">
+        <button class="btn pri" data-a="save" ${busy ? 'disabled' : ''}>${busy === 'save' ? '<span class="spin" style="width:14px;height:14px"></span>' : icon('save', 16)}Lưu cấu hình</button>
+        <button class="btn" data-a="test" ${busy || !sh.enabled ? 'disabled' : ''} title="${sh.enabled ? '' : 'Bật và lưu trước khi kiểm tra'}">${busy === 'test' ? '<span class="spin" style="width:14px;height:14px"></span>' : icon('plug', 16)}Kiểm tra (tính 1 lượt)</button>
+        ${testMsg ? `<span class="res ${testMsg.ok ? '' : 'bad'}">${icon(testMsg.ok ? 'check' : 'x', 16, 2.6)}<span>${esc(testMsg.msg)}</span></span>` : ''}</div>
+      ${sh.updated_at ? `<div class="help" style="margin-top:10px">Cập nhật lần cuối ${formatDateTime(sh.updated_at)}${sh.enabled ? ` · Người dùng thấy: <b>${esc(PROVIDERS[sh.provider]?.name || sh.provider)}</b> · <span class="mono">${esc(sh.model)}</span>` : ''}</div>` : ''}
+    </div>
+    <div class="card"><div class="ch"><div><h3>${icon('wand', 16)}Dùng cấu hình AI của tôi cho mọi người</h3><p>Chép nhà cung cấp, model và key (đã đồng bộ) trong Cài đặt → AI của bạn sang AI dùng chung. Key được chép ngay trên máy chủ, không đi qua trình duyệt.</p></div></div>
+      <div class="help">Cấu hình của bạn: <b>${esc(mp?.name || app.aiSettings.provider)}</b> · <span class="mono">${esc(m.model || '—')}</span>${m.apiKey ? '' : ' · <span style="color:var(--warn)">chưa có key</span>'}</div>
+      <div style="margin-top:10px"><button class="btn" data-a="mine" ${busy ? 'disabled' : ''}>${busy === 'mine' ? '<span class="spin" style="width:14px;height:14px"></span>' : icon('copy', 16)}Dùng cấu hình AI của tôi cho mọi người</button></div></div>`;
+  };
+  draw();
+  box.oninput = e => { const k = e.target.dataset.f; if (!k) return; f[k] = e.target.type === 'number' ? Number(e.target.value) : e.target.value.trim(); if (k === 'provider') { const P = PROVIDERS[f.provider]; if (P && !(P.models || []).includes(f.model)) f.model = P.model || ''; f.base_url = ''; draw(); } };
+  const after = async (next, msg) => { sh = next; f.api_key = ''; f.enabled = !!sh.raw_enabled; await app.loadSharedAi(); toast(msg); };
+  box.onclick = async e => {
+    const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
+    if (a === 'enabled') { f.enabled = !f.enabled; draw(); return; }
+    if (a === 'defallow') { f.default_allow_custom = !f.default_allow_custom; draw(); return; }
+    try {
+      if (a === 'save') {
+        if (f.enabled && (!f.model || (!f.api_key && !sh.has_key))) { toast('Cần chọn model và nhập API key trước khi bật', { kind: 'err' }); return; }
+        busy = 'save'; draw();
+        const cfg = { enabled: f.enabled, provider: f.provider, model: f.model, base_url: f.base_url, account_id: f.account_id, limit_hour: f.limit_hour, limit_day: f.limit_day, default_allow_custom: f.default_allow_custom };
+        if (f.api_key) cfg.api_key = f.api_key;
+        await after(await app.data.sharedAi.save(cfg), 'Đã lưu AI dùng chung');
+      } else if (a === 'clearkey') {
+        if (!(await confirmDialog('Xoá key của AI dùng chung? Người dùng sẽ không dùng được AI cho tới khi có key mới.', { okText: 'Xoá key', danger: true }))) return;
+        busy = 'save'; draw(); await after(await app.data.sharedAi.save({ clear_key: true, enabled: false }), 'Đã xoá key');
+      } else if (a === 'mine') {
+        const pid = app.aiSettings.provider, m = mine();
+        busy = 'mine'; draw();
+        let next;
+        try { next = await app.data.sharedAi.fromMine(pid, m.model); }
+        catch (err) {
+          // Key chưa đồng bộ lên máy chủ → gửi key trên máy này thẳng vào hàm lưu (chỉ admin)
+          if (!m.apiKey) throw err;
+          next = await app.data.sharedAi.save({ provider: pid, model: m.model, base_url: (m.baseUrl && m.baseUrl !== PROVIDERS[pid]?.baseUrl) ? m.baseUrl : '', account_id: m.accountId || '', api_key: m.apiKey });
+        }
+        Object.assign(f, { provider: next.provider, model: next.model, base_url: next.base_url || '', account_id: next.account_id || '' });
+        await after(next, 'Đã chép cấu hình AI của bạn — bật “AI dùng chung” rồi bấm Lưu nếu chưa bật');
+      } else if (a === 'test') {
+        busy = 'test'; testMsg = null; draw(); const t0 = performance.now();
+        const ai = { provider: sh.provider, shared: true, providers: { [sh.provider]: { model: sh.model, baseUrl: 'https://ai-dung-chung.invalid', useProxy: true } }, options: {} };
+        const out = await app.ai.chat(ai, [{ role: 'user', content: 'Trả lời đúng một từ: OK' }], { maxTokens: 300 });
+        testMsg = { ok: true, msg: `Kết nối thành công · ${Math.round(performance.now() - t0)} ms · “${out.trim().slice(0, 40)}”` };
+      }
+    } catch (err) { if (a === 'test') testMsg = { ok: false, msg: err.message }; else toast(err.message, { kind: 'err', ms: 7000 }); }
+    busy = ''; draw();
   };
 }

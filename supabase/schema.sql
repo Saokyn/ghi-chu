@@ -301,20 +301,7 @@ begin
   return r;
 end $$;
 
-create or replace function public.admin_list_users(lim int default 100)
-returns table (id uuid, email text, role text, created_at timestamptz, note_count bigint, last_active timestamptz)
-language plpgsql stable security definer set search_path = public as $$
-begin
-  if not public.is_admin() then raise exception 'Chỉ admin mới xem được danh sách người dùng' using errcode = '42501'; end if;
-  return query
-    select p.id, p.email, p.role, p.created_at,
-           count(n.id) as note_count,
-           coalesce(max(n.updated_at), p.created_at) as last_active
-    from public.profiles p left join public.notes n on n.user_id = p.id
-    group by p.id
-    order by last_active desc
-    limit greatest(1, least(coalesce(lim, 100), 1000));
-end $$;
+-- admin_list_users: xem phần “AI dùng chung” ở cuối file (có thêm cột allow_custom_ai)
 
 create or replace function public.admin_set_role(target uuid, new_role text)
 returns void language plpgsql security definer set search_path = public as $$
@@ -328,10 +315,162 @@ begin
 end $$;
 
 revoke all on function public.admin_stats() from public, anon;
-revoke all on function public.admin_list_users(int) from public, anon;
 revoke all on function public.admin_set_role(uuid, text) from public, anon;
 grant execute on function public.admin_stats() to authenticated;
-grant execute on function public.admin_list_users(int) to authenticated;
 grant execute on function public.admin_set_role(uuid, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- AI dùng chung (admin cài một nhà cung cấp + key cho mọi người)
+--   * shared_ai: 1 dòng, KHÔNG có policy nào → anon/authenticated không đọc được
+--     (kể cả admin). Chỉ service_role (Edge Function ai-proxy) đọc được key.
+--   * Người dùng chỉ thấy tên nhà cung cấp + model qua get_shared_ai().
+--   * profiles.allow_custom_ai: chỉ admin đổi được (người dùng chỉ có quyền UPDATE cột prefs).
+-- ---------------------------------------------------------------------
+alter table public.profiles add column if not exists allow_custom_ai boolean not null default false;
+
+create table if not exists public.shared_ai (
+  id                   int primary key default 1 check (id = 1),
+  enabled              boolean not null default false,
+  provider             text,
+  base_url             text,
+  account_id           text,
+  model                text,
+  api_key              text,
+  limit_hour           int not null default 30  check (limit_hour between 0 and 10000),
+  limit_day            int not null default 200 check (limit_day between 0 and 100000),
+  default_allow_custom boolean not null default false,
+  updated_at           timestamptz not null default now(),
+  updated_by           uuid
+);
+insert into public.shared_ai (id) values (1) on conflict (id) do nothing;
+alter table public.shared_ai enable row level security;            -- không tạo policy nào
+revoke all on public.shared_ai from public, anon, authenticated;
+grant select on public.shared_ai to service_role;               -- Edge Function đọc cấu hình + key
+comment on table public.shared_ai is 'AI dùng chung. Không có policy: chỉ service_role (Edge Function) đọc được api_key.';
+
+create table if not exists public.ai_shared_usage (
+  id         bigint generated always as identity primary key,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists ai_shared_usage_user_time on public.ai_shared_usage (user_id, created_at desc);
+alter table public.ai_shared_usage enable row level security;      -- không tạo policy nào
+revoke all on public.ai_shared_usage from public, anon, authenticated;
+grant select, insert, delete on public.ai_shared_usage to service_role;
+
+-- Thông tin an toàn cho mọi người dùng đã đăng nhập (không bao giờ trả về key)
+create or replace function public.get_shared_ai()
+returns json language plpgsql stable security definer set search_path = public as $$
+declare s public.shared_ai; me public.profiles; adm boolean; used_h int; used_d int;
+begin
+  if auth.uid() is null then raise exception 'Cần đăng nhập' using errcode = '42501'; end if;
+  select * into s from public.shared_ai where id = 1;
+  select * into me from public.profiles where id = auth.uid();
+  adm := coalesce(me.role = 'admin', false);
+  select count(*) filter (where created_at > now() - interval '1 hour'), count(*) into used_h, used_d
+    from public.ai_shared_usage where user_id = auth.uid() and created_at > now() - interval '1 day';
+  return json_build_object(
+    'enabled',    coalesce(s.enabled, false) and s.provider is not null and s.model is not null and s.api_key is not null,
+    'provider',   s.provider, 'model', s.model,
+    'can_custom', adm or coalesce(me.allow_custom_ai, false) or coalesce(s.default_allow_custom, false),
+    'is_admin',   adm,
+    'limit_hour', s.limit_hour, 'limit_day', s.limit_day, 'used_hour', used_h, 'used_day', used_d
+  )::jsonb || (case when adm then jsonb_build_object(
+    'base_url', s.base_url, 'account_id', s.account_id, 'has_key', s.api_key is not null,
+    'key_last4', case when s.api_key is null then null else right(s.api_key, 4) end,
+    'raw_enabled', s.enabled, 'default_allow_custom', s.default_allow_custom, 'updated_at', s.updated_at) else '{}'::jsonb end);
+end $$;
+
+-- Admin lưu cấu hình. api_key: chỉ ghi khi gửi chuỗi khác rỗng; clear_key = true để xoá.
+create or replace function public.admin_set_shared_ai(cfg jsonb)
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin mới cài được AI dùng chung' using errcode = '42501'; end if;
+  update public.shared_ai set
+    enabled    = coalesce((cfg->>'enabled')::boolean, enabled),
+    provider   = case when cfg ? 'provider'   then nullif(left(cfg->>'provider', 40), '')  else provider end,
+    base_url   = case when cfg ? 'base_url'   then nullif(left(cfg->>'base_url', 300), '') else base_url end,
+    account_id = case when cfg ? 'account_id' then nullif(left(cfg->>'account_id', 64), '') else account_id end,
+    model      = case when cfg ? 'model'      then nullif(left(cfg->>'model', 120), '')   else model end,
+    api_key    = case when coalesce((cfg->>'clear_key')::boolean, false) then null
+                      when nullif(cfg->>'api_key', '') is not null then left(cfg->>'api_key', 2000) else api_key end,
+    limit_hour = coalesce((cfg->>'limit_hour')::int, limit_hour),
+    limit_day  = coalesce((cfg->>'limit_day')::int, limit_day),
+    default_allow_custom = coalesce((cfg->>'default_allow_custom')::boolean, default_allow_custom),
+    updated_at = now(), updated_by = auth.uid()
+  where id = 1;
+  return public.get_shared_ai();
+end $$;
+
+-- Admin dùng cấu hình AI (đã đồng bộ) của chính mình cho mọi người — key được chép ngay trên máy chủ,
+-- không đi qua trình duyệt.
+create or replace function public.admin_shared_ai_from_mine(p_provider text, p_model text default null)
+returns json language plpgsql security definer set search_path = public as $$
+declare r public.user_ai_settings;
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin mới cài được AI dùng chung' using errcode = '42501'; end if;
+  select * into r from public.user_ai_settings where user_id = auth.uid() and provider = p_provider;
+  if r.user_id is null or r.api_key is null then
+    raise exception 'Chưa có key đồng bộ cho nhà cung cấp này (bật “Đồng bộ key” trong Cài đặt → AI, hoặc dán key trực tiếp)';
+  end if;
+  update public.shared_ai set provider = p_provider, base_url = r.base_url, account_id = r.account_id,
+    model = coalesce(nullif(p_model, ''), r.model), api_key = r.api_key, updated_at = now(), updated_by = auth.uid()
+  where id = 1;
+  return public.get_shared_ai();
+end $$;
+
+create or replace function public.admin_set_allow_custom_ai(target uuid, allow boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin mới đổi được quyền này' using errcode = '42501'; end if;
+  update public.profiles set allow_custom_ai = coalesce(allow, false) where id = target;
+end $$;
+
+-- Chỉ Edge Function (service_role) gọi: kiểm tra + ghi nhận một lượt dùng AI chung.
+create or replace function public.shared_ai_take(uid uuid)
+returns json language plpgsql security definer set search_path = public as $$
+declare s public.shared_ai; h int; d int;
+begin
+  perform pg_advisory_xact_lock(hashtext('shared_ai:' || uid::text));
+  select * into s from public.shared_ai where id = 1;
+  select count(*) filter (where created_at > now() - interval '1 hour'), count(*) into h, d
+    from public.ai_shared_usage where user_id = uid and created_at > now() - interval '1 day';
+  if h >= s.limit_hour then return json_build_object('ok', false, 'reason', 'hour', 'limit', s.limit_hour); end if;
+  if d >= s.limit_day  then return json_build_object('ok', false, 'reason', 'day',  'limit', s.limit_day);  end if;
+  insert into public.ai_shared_usage (user_id) values (uid);
+  delete from public.ai_shared_usage where user_id = uid and created_at < now() - interval '2 days';
+  return json_build_object('ok', true, 'used_hour', h + 1, 'used_day', d + 1);
+end $$;
+
+-- Danh sách người dùng có thêm cột allow_custom_ai (đổi kiểu trả về → phải drop trước)
+drop function if exists public.admin_list_users(int);
+create function public.admin_list_users(lim int default 100)
+returns table (id uuid, email text, role text, created_at timestamptz, note_count bigint, last_active timestamptz, allow_custom_ai boolean)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin mới xem được danh sách người dùng' using errcode = '42501'; end if;
+  return query
+    select p.id, p.email, p.role, p.created_at,
+           count(n.id) as note_count,
+           coalesce(max(n.updated_at), p.created_at) as last_active,
+           p.allow_custom_ai
+    from public.profiles p left join public.notes n on n.user_id = p.id
+    group by p.id
+    order by last_active desc
+    limit greatest(1, least(coalesce(lim, 100), 1000));
+end $$;
+
+revoke all on function public.get_shared_ai() from public, anon;
+revoke all on function public.admin_set_shared_ai(jsonb) from public, anon;
+revoke all on function public.admin_shared_ai_from_mine(text, text) from public, anon;
+revoke all on function public.admin_set_allow_custom_ai(uuid, boolean) from public, anon;
+revoke all on function public.shared_ai_take(uuid) from public, anon, authenticated;
+revoke all on function public.admin_list_users(int) from public, anon;
+grant execute on function public.get_shared_ai() to authenticated;
+grant execute on function public.admin_set_shared_ai(jsonb) to authenticated;
+grant execute on function public.admin_shared_ai_from_mine(text, text) to authenticated;
+grant execute on function public.admin_set_allow_custom_ai(uuid, boolean) to authenticated;
+grant execute on function public.shared_ai_take(uuid) to service_role;
+grant execute on function public.admin_list_users(int) to authenticated;
 
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

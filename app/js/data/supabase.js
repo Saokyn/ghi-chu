@@ -236,6 +236,13 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy' } = {}) {
       async listUsers() { return must(await sb.rpc('admin_list_users', { lim: 100 })); },
       async setRole(id, role) { must(await sb.rpc('admin_set_role', { target: id, new_role: role })); },
     },
+    // AI dùng chung: key nằm ở bảng shared_ai (không ai đọc được ngoài Edge Function); ở đây chỉ có tên nhà cung cấp + model.
+    sharedAi: {
+      async get() { return must(await sb.rpc('get_shared_ai')); },
+      async save(cfg) { return must(await sb.rpc('admin_set_shared_ai', { cfg })); },
+      async fromMine(provider, model) { return must(await sb.rpc('admin_shared_ai_from_mine', { p_provider: provider, p_model: model || null })); },
+      async setAllowCustom(id, allow) { must(await sb.rpc('admin_set_allow_custom_ai', { target: id, allow: !!allow })); },
+    },
     proxy: {
       available: true,
       // Gọi Edge Function (supabase-js tự gắn JWT của người dùng).

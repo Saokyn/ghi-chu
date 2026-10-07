@@ -92,6 +92,17 @@ export const API_ERROR_CODES = {
 };
 
 /** Cấu hình đã ghép của một nhà cung cấp từ cài đặt người dùng. */
+// AI dùng chung của quản trị viên đang áp dụng cho người này?
+export function sharedActive(ai, sh) { return !!(sh && sh.enabled && (!sh.can_custom || ai?.options?.useShared !== false)); }
+// Cấu hình AI thật sự dùng cho các tính năng: AI chung (không có key, server tự lấy) / AI riêng / khoá (tóm tắt trên máy)
+export function effectiveAi(ai, sh) {
+  if (sharedActive(ai, sh)) {
+    const pid = PROVIDERS[sh.provider] ? sh.provider : 'custom';
+    return Object.assign({}, ai, { provider: pid, shared: true, providers: { [pid]: { model: sh.model, baseUrl: 'https://ai-dung-chung.invalid', useProxy: true } } });
+  }
+  if (sh && !sh.can_custom) return Object.assign({}, ai, { provider: 'custom', locked: true, providers: {} }); // chưa có AI chung → tóm tắt trên máy
+  return ai;
+}
 export function providerConf(ai, pid = ai.provider) {
   const P = PROVIDERS[pid] || PROVIDERS.custom;
   const c = (ai.providers && ai.providers[pid]) || {};
@@ -102,6 +113,7 @@ export function providerConf(ai, pid = ai.provider) {
   return {
     id: pid, name: P.name, short: P.short, apiKey: String(c.apiKey || '').trim(), baseUrl: base, accountId, accountMissing,
     model: String(c.model || P.model || '').trim(),
+    shared: !!ai.shared && pid === ai.provider,
     useProxy: c.useProxy ?? !!P.needsProxy, needsProxy: !!P.needsProxy, stream: !!P.stream, maxInput: P.maxInput, foldSystem: !!P.foldSystem,
     headers: P.headers ? P.headers() : {}, extraBody: P.extraBody,
   };

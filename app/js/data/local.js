@@ -153,13 +153,39 @@ export function createLocalAdapter() {
         return Object.values(users()).map(u => {
           const list = read('notes.' + u.id, []);
           const last = list.reduce((m, n) => (n.updated_at > m ? n.updated_at : m), '');
-          return { id: u.id, email: u.email, role: u.role, created_at: u.created_at, note_count: list.length, last_active: last || u.created_at };
+          return { id: u.id, email: u.email, role: u.role, created_at: u.created_at, note_count: list.length, last_active: last || u.created_at, allow_custom_ai: !!u.allow_custom_ai };
         }).sort((a, b) => (b.last_active || '').localeCompare(a.last_active || ''));
       },
       async setRole(id, role) {
         need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên mới đổi được quyền.');
         const all = users(); const u = Object.values(all).find(x => x.id === id); if (!u) throw new Error('Không tìm thấy người dùng.');
         u.role = role; write('users', all); if (u.id === user.id) { user = toUser(u); emitAuth('profile'); }
+      },
+    },
+    // AI dùng chung — bản demo (lưu trong trình duyệt; bản thật giữ key trên máy chủ)
+    sharedAi: {
+      async get() {
+        need(); const c = read('shared_ai', {}); const me = users()[user.email] || {}; const adm = user.role === 'admin';
+        const out = { enabled: !!(c.enabled && c.provider && c.model && c.api_key), provider: c.provider || null, model: c.model || null,
+          can_custom: adm || !!me.allow_custom_ai || (c.default_allow_custom ?? true), is_admin: adm, limit_hour: c.limit_hour ?? 30, limit_day: c.limit_day ?? 200, used_hour: 0, used_day: 0 };
+        if (adm) Object.assign(out, { base_url: c.base_url || null, account_id: c.account_id || null, has_key: !!c.api_key, key_last4: c.api_key ? c.api_key.slice(-4) : null, raw_enabled: !!c.enabled, default_allow_custom: c.default_allow_custom ?? true, updated_at: c.updated_at || null });
+        return out;
+      },
+      async save(cfg) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên mới cài được AI dùng chung.');
+        const c = read('shared_ai', {}); const { api_key, clear_key, ...rest } = cfg;
+        Object.assign(c, rest, { updated_at: nowIso() }); if (clear_key) delete c.api_key; else if (api_key) c.api_key = api_key;
+        write('shared_ai', c); return api.sharedAi.get();
+      },
+      async fromMine(provider, model) {
+        need(); const mine = mergeAi(read('ai.' + user.id, null)).providers?.[provider] || {};
+        if (!mine.apiKey) throw new Error('Chưa có key cho nhà cung cấp này trong Cài đặt → AI.');
+        return api.sharedAi.save({ provider, model: model || mine.model || '', base_url: mine.baseUrl || '', account_id: mine.accountId || '', api_key: mine.apiKey });
+      },
+      async setAllowCustom(id, allow) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên mới đổi được quyền này.');
+        const all = users(); const u = Object.values(all).find(x => x.id === id); if (!u) throw new Error('Không tìm thấy người dùng.');
+        u.allow_custom_ai = !!allow; write('users', all);
       },
     },
     proxy: { available: false, async call() { throw new Error('Proxy (Supabase Edge Function) chỉ dùng được khi đã cấu hình Supabase.'); } },

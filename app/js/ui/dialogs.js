@@ -206,7 +206,7 @@ export function openLinkDialog(app, { url = '' } = {}) {
 
 /* ============================== AI tóm tắt ============================== */
 export function openAiDialog(app, { text = '' } = {}) {
-  const ai = app.aiSettings, c = providerConf(ai);
+  const ai = app.aiEff(), c = providerConf(ai), lockedAi = app.sharedAi && !app.sharedAi.can_custom;
   const ready = (c.apiKey || (c.useProxy && app.ai.canProxy())) && c.model && c.baseUrl && !c.accountMissing;
   let length = ai.options?.length || 'medium', result = null, source = null;
   const m = openModal(`<div class="dlg" role="dialog" aria-label="AI tóm tắt" style="max-width:640px">
@@ -220,7 +220,9 @@ export function openAiDialog(app, { text = '' } = {}) {
         <button class="btn pri" data-run>${icon('wand', 16)}Tóm tắt</button>
       </div>
       <div class="help" style="margin-top:10px">${ready
-        ? `${icon('check', 13)} Dùng <b>${esc(c.name)}</b> · <span class="mono">${esc(c.model)}</span>${c.useProxy && app.ai.canProxy() ? ' · qua proxy' : ''}. <a href="#/cai-dat/ai" data-goai>Đổi</a>`
+        ? `${icon('check', 13)} Dùng <b>${esc(c.name)}</b> · <span class="mono">${esc(c.model)}</span>${c.shared ? ' · AI dùng chung' : c.useProxy && app.ai.canProxy() ? ' · qua proxy' : ''}.${lockedAi ? '' : ' <a href="#/cai-dat/ai" data-goai>Đổi</a>'}`
+        : c.shared ? `${icon('info', 13)} AI dùng chung (<b>${esc(c.name)}</b> · <span class="mono">${esc(c.model)}</span>) chỉ chạy khi app kết nối Supabase — bây giờ app sẽ <b>tóm tắt nhanh ngay trên máy</b>.`
+        : lockedAi ? `${icon('info', 13)} Quản trị viên chưa cài AI dùng chung — app sẽ <b>tóm tắt nhanh ngay trên máy</b> (không dùng AI).`
         : `${icon('info', 13)} Chưa cấu hình AI — app sẽ <b>tóm tắt nhanh ngay trên máy</b> (trích các câu quan trọng, không dùng AI). <a href="#/cai-dat/ai" data-goai>Cài đặt AI →</a>`}</div>
       <div data-res></div>
     </div>

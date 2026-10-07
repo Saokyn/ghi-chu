@@ -263,7 +263,7 @@ export class Editor {
     btn.disabled = true; const old = btn.innerHTML; btn.innerHTML = '<span class="spin" style="width:14px;height:14px"></span> Đang tóm tắt…';
     try {
       const o = this.app.aiSettings.options || {};
-      const r = await this.app.ai.summarize(this.app.aiSettings, isUrlOnly(src) ? { url: normalizeUrlInput(src), length: o.length, lang: o.lang } : { text: src, length: o.length, lang: o.lang });
+      const r = await this.app.ai.summarize(this.app.aiEff(), isUrlOnly(src) ? { url: normalizeUrlInput(src), length: o.length, lang: o.lang } : { text: src, length: o.length, lang: o.lang });
       this.cur.content = r.points.join('\n'); this.q('.ta').value = this.cur.content;
       this.queueLines(); this.refreshState();
       toast(r.engine === 'ai' ? 'Đã tóm tắt lại bằng ' + r.provider + ' — bấm Lưu để giữ' : 'Đã tóm tắt lại (trên máy) — bấm Lưu để giữ');

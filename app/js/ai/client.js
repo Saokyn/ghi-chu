@@ -8,6 +8,7 @@ export function createAiClient(getData) {
   const canProxy = () => !!data()?.proxy?.available;
 
   function errText(status, j, raw, c) {
+    if (j?.friendly && j.error) return String(j.error); // lỗi thân thiện từ proxy (hết lượt, chưa cài AI chung…)
     const code = apiErrorCode(j);
     let m = j ? (j.error?.message || (typeof j.error === 'string' ? j.error : '') || j.msg || j.message || j.errors?.[0]?.message || '') : '';
     if (!m) m = String(raw || '').slice(0, 200) || 'không rõ';
@@ -27,8 +28,10 @@ export function createAiClient(getData) {
       throw new Error(`${c.name} không cho gọi thẳng từ trình duyệt (CORS). Cần bật “Gọi qua proxy (Supabase Edge Function)” — chỉ dùng được khi app đã kết nối Supabase.`);
     }
   }
+  // AI chung: chỉ gửi mode 'shared' — máy chủ tự dùng nhà cung cấp, model và key của quản trị viên.
+  const proxyBase = c => (c.shared ? { mode: 'shared', provider: c.id } : { provider: c.id, base_url: c.baseUrl, account_id: c.accountId, api_key: c.apiKey || undefined });
   async function viaProxy(c, payload) {
-    const r = await data().proxy.call(Object.assign({ provider: c.id, base_url: c.baseUrl, account_id: c.accountId, api_key: c.apiKey || undefined }, payload));
+    const r = await data().proxy.call(Object.assign(proxyBase(c), payload));
     return r; // { status, data }
   }
 
@@ -45,7 +48,7 @@ export function createAiClient(getData) {
     if (c.useProxy && canProxy()) {
       const px = data().proxy;
       const r = c.stream && px.stream
-        ? await px.stream(Object.assign({ provider: c.id, base_url: c.baseUrl, account_id: c.accountId, api_key: c.apiKey || undefined }, { action: 'chat', body }), onDelta)
+        ? await px.stream(Object.assign(proxyBase(c), { action: 'chat', body }), onDelta)
         : await viaProxy(c, { action: 'chat', body });
       status = r.status; j = r.data; raw = JSON.stringify(r.data);
     } else {
@@ -58,7 +61,7 @@ export function createAiClient(getData) {
       }
       status = res.status; raw = await res.text(); try { j = JSON.parse(raw); } catch { j = null; }
     }
-    if (status === 504 && !retried && c.stream) return chat(ai, messages, { pid, maxTokens, signal, onDelta, retried: true }); // Intern thỉnh thoảng treo: thử lại 1 lần
+    if (status === 504 && !retried && (c.stream || c.shared)) return chat(ai, messages, { pid, maxTokens, signal, onDelta, retried: true }); // Intern thỉnh thoảng treo: thử lại 1 lần
     if (status < 200 || status >= 300) throw new Error(errText(status, j, raw, c));
     const out = j?.choices?.[0]?.message?.content;
     if (out == null) throw new Error('Phản hồi không đúng định dạng OpenAI: ' + String(raw).slice(0, 300));

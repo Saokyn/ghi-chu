@@ -144,6 +144,15 @@ function modelsUrl(base: string): string {
   if (/\/accounts\/[^/]+\/ai\/v1$/.test(base)) return base.replace(/\/ai\/v1$/, '/ai/models/search') + '?task=Text%20Generation&per_page=100';
   return base + '/models';
 }
+// Base URL mặc định (giống app/js/ai/providers.js) — dùng khi cấu hình AI chung để trống Base URL
+const DEFAULT_BASE: Record<string, string> = {
+  xai: 'https://api.x.ai/v1', intern: 'https://chat.intern-ai.org.cn/api/v1', discovery: 'https://discovery-api.intern-ai.org.cn/v1',
+  cloudflare: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1', gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  groq: 'https://api.groq.com/openai/v1', openrouter: 'https://openrouter.ai/api/v1',
+};
+const SHARED_MAX_TOKENS = 2000;
+/** Lỗi thân thiện (client hiện nguyên câu, không thêm "HTTP …"). */
+const friendly = (status: number, msg: string, code = '') => json({ status, data: { error: msg, code, friendly: true } });
 const EXTRA_HEADERS: Record<string, Record<string, string>> = {
   openrouter: { 'HTTP-Referer': 'https://github.com', 'X-Title': 'Ghi Chu' },
 };
@@ -195,11 +204,44 @@ async function handle(req: Request): Promise<Response> {
 
     if (action !== 'chat' && action !== 'models') throw new HttpError(400, 'action không hợp lệ (chat | models | fetch_url)');
 
-    // 3) Gọi nhà cung cấp AI (OpenAI-compatible)
-    const provider = String(p.provider || 'custom').slice(0, 40);
+    // 3) Quyền: người dùng chưa được admin cho "tự chọn AI" thì LUÔN dùng AI chung (bỏ qua key/provider/base_url họ gửi)
+    const svc = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+    const [{ data: shared }, { data: prof }] = await Promise.all([
+      svc.from('shared_ai').select('*').eq('id', 1).maybeSingle(),
+      svc.from('profiles').select('role,allow_custom_ai').eq('id', u.user.id).maybeSingle(),
+    ]);
+    const canCustom = prof?.role === 'admin' || !!prof?.allow_custom_ai || !!shared?.default_allow_custom;
+    const useShared = p.mode === 'shared' || !canCustom;
+
+    let provider = String(p.provider || 'custom').slice(0, 40);
     let base = String(p.base_url || '').trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
     let apiKey = String(p.api_key || '').trim();
-    if (!apiKey || !base) {
+    if (useShared) {
+      if (action !== 'chat') return friendly(403, 'Chỉ dùng được với AI riêng (cần quản trị viên cho phép tự chọn AI).', 'shared_only');
+      if (!shared?.enabled || !shared.provider || !shared.model || !shared.api_key)
+        return friendly(503, canCustom ? 'Quản trị viên chưa bật AI dùng chung.' : 'Quản trị viên chưa cài AI dùng chung. Liên hệ quản trị viên để dùng tính năng AI.', 'shared_off');
+      const { data: take, error: takeErr } = await svc.rpc('shared_ai_take', { uid: u.user.id });
+      if (takeErr) throw new Error('Không kiểm tra được hạn mức: ' + takeErr.message);
+      if (!take?.ok) return friendly(429, take?.reason === 'hour'
+        ? `Bạn đã dùng hết ${take.limit} lượt AI dùng chung trong 1 giờ. Hãy thử lại sau ít phút.`
+        : `Bạn đã dùng hết ${take?.limit} lượt AI dùng chung hôm nay. Hãy thử lại vào ngày mai.`, 'shared_limit');
+      provider = shared.provider; apiKey = shared.api_key;
+      base = String(shared.base_url || DEFAULT_BASE[provider] || '').replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
+      if (base.includes('{ACCOUNT_ID}') && shared.account_id) base = base.split('{ACCOUNT_ID}').join(encodeURIComponent(shared.account_id));
+      // Ép model của admin, giới hạn độ dài trả lời, áp các chỉnh riêng của nhà cung cấp
+      const b = p.body && typeof p.body === 'object' ? p.body : {};
+      b.model = shared.model;
+      b.max_tokens = Math.min(Number(b.max_tokens) || SHARED_MAX_TOKENS, SHARED_MAX_TOKENS);
+      if (provider === 'intern') {
+        if (/^intern-s/.test(shared.model)) b.thinking_mode = false;
+        if (Array.isArray(b.messages) && b.messages.some((m: any) => m?.role === 'system')) { // intern-s2 treo khi có system
+          const sys = b.messages.filter((m: any) => m?.role === 'system').map((m: any) => m.content).join('\n\n');
+          const rest = b.messages.filter((m: any) => m?.role !== 'system'); const i = rest.findIndex((m: any) => m?.role === 'user');
+          b.messages = i < 0 ? [{ role: 'user', content: sys }, ...rest] : rest.map((m: any, k: number) => (k === i ? { ...m, content: sys + '\n\n' + m.content } : m));
+        }
+      }
+      p.body = b;
+    } else if (!apiKey || !base) {
       // Lấy cấu hình đã đồng bộ (RLS bảo đảm chỉ đọc được của chính mình)
       const { data: row } = await sb.from('user_ai_settings').select('api_key,base_url,account_id').eq('provider', provider).maybeSingle();
       apiKey = apiKey || row?.api_key || '';
@@ -223,7 +265,8 @@ async function handle(req: Request): Promise<Response> {
     } else {
       res = await safeFetch(modelsUrl(base), { method: 'GET', headers }, TIMEOUT_MS, { httpsOnly: true });
     }
-    const text = await readLimited(res, 5_000_000);
+    let text = await readLimited(res, 5_000_000);
+    if (useShared && apiKey.length >= 8) text = text.split(apiKey).join('***'); // không bao giờ để lộ key chung trong lỗi trả về
     let data: unknown; try { data = JSON.parse(text); } catch { data = { error: { message: text.slice(0, 500) || res.statusText } }; }
     return json({ status: res.status, data });
   } catch (e) {

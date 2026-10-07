@@ -1,3 +1,4 @@
+import { effectiveAi } from './ai/providers.js';
 // Điểm khởi động ứng dụng Ghi Chú: trạng thái, điều hướng, khung giao diện, đồng bộ.
 import { createDataLayer } from './data/index.js';
 import { createAiClient } from './ai/client.js';
@@ -99,6 +100,7 @@ async function enter(u) {
     app.user = u;
     app.prefs = Object.assign({}, DEFAULT_PREFS, await app.data.prefs.get());
     app.aiSettings = await app.data.ai.get();
+    await app.loadSharedAi();
     app.notes = await app.data.notes.list();
     applyTheme();
     app.entered = true;
@@ -155,8 +157,9 @@ function navHTML() {
   h += item('settings', 'settings', 'Cài đặt', null, r.name === 'settings', `data-go="#/cai-dat/${r.name === 'settings' ? r.tab || 'ai' : 'ai'}"`);
   if (app.user?.role === 'admin') {
     h += `<div class="sec">Quản trị</div>`;
-    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && r.tab !== 'nguoi-dung', `data-go="#/quan-tri/giao-dien"`);
+    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && !['nguoi-dung', 'ai-dung-chung'].includes(r.tab), `data-go="#/quan-tri/giao-dien"`);
     h += item('users', 'users', 'Người dùng', null, r.name === 'admin' && r.tab === 'nguoi-dung', `data-go="#/quan-tri/nguoi-dung"`);
+    h += item('sharedai', 'ai', 'AI dùng chung', null, r.name === 'admin' && r.tab === 'ai-dung-chung', `data-go="#/quan-tri/ai-dung-chung"`);
   }
   return h;
 }
@@ -378,6 +381,9 @@ app.savePrefs = (patch) => {
   prefsChain = prefsChain.then(() => app.data.prefs.save(snap)).catch(e => toast('Không lưu được tùy chọn: ' + e.message, { kind: 'err' }));
   return prefsChain;
 };
+// AI dùng chung của quản trị viên (chỉ tên nhà cung cấp + model; key ở máy chủ)
+app.loadSharedAi = async () => { try { app.sharedAi = app.data.sharedAi ? await app.data.sharedAi.get() : null; } catch (e) { console.warn('get_shared_ai', e); app.sharedAi = null; } return app.sharedAi; };
+app.aiEff = () => effectiveAi(app.aiSettings, app.sharedAi);
 app.saveAi = async (s) => { await app.data.ai.save(s); app.aiSettings = s; };
 
 /* ============================== đồng bộ thời gian thực ============================== */

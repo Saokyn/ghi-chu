@@ -3,7 +3,7 @@ import { esc, toast, download } from '../util.js';
 import { icon } from '../icons.js';
 import { READING, READING_KEYS } from '../palette.js';
 import { formatDateTime, formatTime } from '../format.js';
-import { PROVIDERS, PROVIDER_IDS, providerConf } from '../ai/providers.js';
+import { PROVIDERS, PROVIDER_IDS, providerConf, effectiveAi } from '../ai/providers.js';
 import { LAYOUTS } from '../defaults.js';
 import { confirmDialog } from './dialogs.js';
 
@@ -108,7 +108,39 @@ function dataTab(box, app) {
 }
 
 /* ============================== AI ============================== */
+function sharedLine(sh) { return `<b>${esc(PROVIDERS[sh.provider]?.name || sh.provider)}</b> · <span class="mono">${esc(sh.model)}</span>`; }
+function quotaLine(sh) { return sh.limit_hour != null ? `Hạn mức: ${sh.limit_hour} lượt/giờ, ${sh.limit_day} lượt/ngày · đã dùng ${sh.used_hour || 0} lượt trong giờ qua, ${sh.used_day || 0} lượt hôm nay.` : ''; }
+
+// Người dùng chưa được quản trị viên cho tự chọn AI: chỉ xem AI đang dùng + tuỳ chọn tóm tắt
+function lockedAiTab(box, app, sh) {
+  const ws = JSON.parse(JSON.stringify(app.aiSettings)); ws.options = ws.options || {};
+  const draw = () => {
+    box.innerHTML = `<div class="card" data-ai-locked>
+        <div class="ch"><div><h3>${icon('ai', 17)}AI đang dùng</h3><p>Do quản trị viên cài đặt cho mọi người.</p></div>${sh.enabled ? `<span class="bdg ok">${icon('check', 12, 3)}Sẵn sàng</span>` : '<span class="bdg mut">Chưa cài</span>'}</div>
+        ${sh.enabled
+          ? `<div class="callout">${icon('shield', 18)}<div>AI đang dùng: ${sharedLine(sh)} <span class="muted">(do quản trị viên cài đặt)</span><div class="help" style="margin-top:6px">${esc(quotaLine(sh))}</div></div></div>`
+          : `<div class="callout warn">${icon('info', 18)}<div>Quản trị viên chưa cài AI dùng chung. Tính năng “AI tóm tắt” vẫn hoạt động bằng cách <b>tóm tắt nhanh ngay trên máy</b> (không dùng AI).</div></div>`}
+        <div class="help">Việc chọn nhà cung cấp AI và API key do quản trị viên quản lý. Cần dùng AI riêng? Hãy nhờ quản trị viên bật “Cho tự chọn AI” cho tài khoản của bạn.</div>
+      </div>
+      <div class="card"><div class="ch"><div><h3>Tùy chọn tóm tắt</h3></div></div>
+        <label class="field"><span class="lbl">Ngôn ngữ bản tóm tắt</span><select class="inp" data-o="lang"><option value="vi" ${ws.options.lang !== 'en' ? 'selected' : ''}>Tiếng Việt</option><option value="en" ${ws.options.lang === 'en' ? 'selected' : ''}>English</option></select></label>
+        <div class="field"><span class="lbl">Độ dài</span><div class="seg full">${[['short', 'Ngắn · 3 ý'], ['medium', 'Vừa · 5 ý'], ['long', 'Chi tiết · 8 ý']].map(([k, l]) => `<button class="${(ws.options.length || 'medium') === k ? 'on' : ''}" data-len="${k}">${l}</button>`).join('')}</div></div>
+        <div class="tr"><div><b>Lưu kèm nguồn</b><small>Giữ đường link hoặc đoạn văn gốc bên dưới bản tóm tắt</small></div><button class="sw ${ws.options.keepSource !== false ? 'on' : ''}" data-a="keep" role="switch" aria-label="Lưu kèm nguồn"></button></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn pri" data-a="save">${icon('save', 16)}Lưu</button></div></div>`;
+  };
+  draw();
+  box.oninput = e => { if (e.target.dataset.o) ws.options[e.target.dataset.o] = e.target.value; };
+  box.onclick = async e => {
+    const l = e.target.closest('[data-len]'); if (l) { ws.options.length = l.dataset.len; draw(); return; }
+    const a = e.target.closest('[data-a]')?.dataset.a;
+    if (a === 'keep') { ws.options.keepSource = ws.options.keepSource === false; draw(); }
+    if (a === 'save') { try { ws.savedAt = new Date().toISOString(); await app.saveAi(ws); toast('Đã lưu tùy chọn tóm tắt'); } catch (err) { toast('Không lưu được: ' + err.message, { kind: 'err' }); } }
+  };
+}
+
 function aiTab(box, app) {
+  const sh = app.sharedAi;
+  if (sh && !sh.can_custom) return lockedAiTab(box, app, sh);
   const ws = JSON.parse(JSON.stringify(app.aiSettings)); // bản đang sửa
   if (!PROVIDERS[ws.provider]) ws.provider = PROVIDER_IDS[0];
   ws.providers = ws.providers || {}; ws.options = ws.options || {};
@@ -134,8 +166,12 @@ function aiTab(box, app) {
     const useProxy = c.useProxy ?? !!P.needsProxy;
     const model = conf.model;
     const list = models(pid).filter(m => !st.filter || m.toLowerCase().includes(st.filter.toLowerCase()));
-    box.innerHTML = `
-    <div class="card">
+    const useShared = !!(sh && sh.enabled && ws.options.useShared !== false);
+    box.innerHTML = `${sh && sh.enabled ? `
+    <div class="card" data-shared-card><div class="tr" style="border-top:0;padding-top:0"><div><b>${icon('shield', 15)} Dùng AI dùng chung của quản trị viên</b><small>AI dùng chung: ${sharedLine(sh)}. ${esc(quotaLine(sh))} Tắt để dùng nhà cung cấp và key riêng của bạn bên dưới.</small></div>
+      <button class="sw ${useShared ? 'on' : ''}" data-a="useshared" role="switch" aria-checked="${useShared}" aria-label="Dùng AI dùng chung"></button></div>
+      ${useShared ? `<div class="help">Đang dùng AI dùng chung. Thay đổi bên dưới chỉ có hiệu lực khi bạn tắt tùy chọn này (nhớ bấm Lưu).</div>` : ''}</div>` : ''}
+    <div class="card" ${useShared ? 'style="opacity:.6"' : ''}>
       <div class="ch"><div><h3><span class="num">1</span>Chọn nhà cung cấp AI</h3><p>Dùng cho tính năng “AI tóm tắt” – rút ý chính từ đoạn văn hoặc đường link. Mỗi nhà cung cấp có key riêng.</p></div></div>
       <div class="pg">${PROVIDER_IDS.map(id => `<button class="pv ${id === pid ? 'sel' : ''}" data-p="${id}"><span class="rd"></span>${logo(PROVIDERS[id])}<b>${esc(PROVIDERS[id].name)}</b><small>${esc(providerConf(ws, id).model || 'Tùy chỉnh endpoint')}</small>${badge(id)}</button>`).join('')}</div>
     </div>
@@ -217,6 +253,7 @@ function aiTab(box, app) {
     else if (a === 'reseturl') { delete c.baseUrl; draw(); }
     else if (a === 'proxy') { c.useProxy = !(c.useProxy ?? !!PROVIDERS[pid].needsProxy); delete c.test; draw(); }
     else if (a === 'keep') { ws.options.keepSource = ws.options.keepSource === false; draw(); }
+    else if (a === 'useshared') { ws.options.useShared = !(sh && sh.enabled && ws.options.useShared !== false); draw(); }
     else if (a === 'sync') { if (app.data.mode !== 'demo') { ws.syncKey = !ws.syncKey; draw(); } }
     else if (a === 'dd') { st.dd = !st.dd; draw(); }
     else if (a === 'test') {
@@ -235,7 +272,7 @@ function aiTab(box, app) {
       const out = box.querySelector('[data-tryout]'), b = e.target.closest('button');
       b.disabled = true; out.innerHTML = '<div class="help"><span class="spin" style="width:14px;height:14px"></span> Đang tóm tắt…</div>';
       try {
-        const r = await app.ai.summarize(ws, { text: box.querySelector('[data-tryin]').value, length: 'short', lang: ws.options.lang });
+        const r = await app.ai.summarize(effectiveAi(ws, sh), { text: box.querySelector('[data-tryin]').value, length: 'short', lang: ws.options.lang });
         out.innerHTML = `<div class="pv-res" style="font-size:13px"><b>${esc(r.title)}</b><ol class="pts">${r.points.map(x => `<li>${esc(x)}</li>`).join('')}</ol><div class="help">${r.engine === 'ai' ? esc(r.provider + ' · ' + r.model) : 'Tóm tắt nhanh trên máy (không dùng AI)'}</div></div>`;
       } catch (err) { out.innerHTML = `<div class="err-t">${esc(err.message)}</div>`; }
       b.disabled = false;
