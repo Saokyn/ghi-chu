@@ -158,7 +158,7 @@ function aiState(app) {
 }
 async function suggestBatch(app, st, batch, allowNew) {
   if (!st.ready) return batch.map(n => localSuggest(n, app.folders)).filter(Boolean);
-  const out = await app.ai.chat(st.ai, buildSortMessages(batch, app.folders, { allowNew }), { maxTokens: 300 + batch.length * 60 });
+  const out = await app.ai.chat(st.ai, buildSortMessages(batch, app.folders, { allowNew }), { maxTokens: Math.min(4000, 900 + batch.length * 90) }); // dư chỗ cho model “suy nghĩ” (<think>) trước khi trả JSON
   const s = parseSuggestions(out, batch, app.folders);
   if (!s.length && batch.length && !/[[{]/.test(out)) throw new Error('AI trả lời không đúng định dạng JSON');
   return allowNew ? s : s.filter(x => x.folder_id);
