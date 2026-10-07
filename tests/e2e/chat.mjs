@@ -130,6 +130,11 @@ const lastAi = page => page.locator('.ch-body .cm.ai').last();
     check(await p.locator('.ch-body .cm-err').count() === 0 && /báo giá/.test(await lastAi(p).textContent()), 'Thử lại → có câu trả lời, xoá lỗi cũ');
     check(allText(bodies.at(-1)).includes('tôi có việc gì cần làm?'), 'thử lại gửi lại đúng câu hỏi');
 
+    // 5b) model trả rỗng (suy nghĩ hết token) → tự hỏi lại 1 lần
+    const nb = bodies.length;
+    plan.push({ text: '' }, { text: 'Bạn cần gửi báo giá cho anh Tùng.' });
+    await ask(p, 'việc gấp nhất là gì?');
+    check(bodies.length === nb + 2 && /không cần suy luận dài/.test(bodies.at(-1).messages.at(-1).content) && /gửi báo giá/.test(await lastAi(p).textContent()) && await p.locator('.ch-body .cm-err').count() === 0, 'trả lời rỗng → tự hỏi lại 1 lần (nhắc trả lời ngay), không báo lỗi');
     // 6) lưu thành ghi chú (vào thư mục)
     await hide(p);
     await lastAi(p).locator('[data-c=savenote]').click(); await p.waitForSelector('.ch-save [data-sn=folder]');

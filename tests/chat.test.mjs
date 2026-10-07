@@ -128,3 +128,15 @@ test('retrieval: câu nhắc việc không kéo ghi chú không liên quan; fuzz
   assert.deepEqual(rankNotes(notes, 'Nhắc tôi thắp hương rằm tháng sau', { now }), []);
   assert.equal(rankNotes(notes, 'hoá đơn tháng 9', { now })[0].note?.id ?? rankNotes(notes, 'hoá đơn tháng 9', { now })[0].id, 'b');
 });
+
+test('thao tác: bỏ dòng “Tiêu đề:” model chép lại; nudge /no_think cho Qwen', async () => {
+  const { nudgeNoThink } = await import('../app/js/chat/prompts.js');
+  const note = { title: 'Biên bản họp', content: 'Khách hàg' };
+  assert.equal(cleanActionOutput('Tiêu đề: Biên bản họp\nKhách hàng muốn giao', note), 'Khách hàng muốn giao');
+  assert.equal(cleanActionOutput('**Tiêu đề:** Biên bản họp\n\nKhách hàng', note), 'Khách hàng');
+  assert.equal(cleanActionOutput('# Biên bản họp\nKhách hàng', note), 'Khách hàng');
+  assert.equal(cleanActionOutput('Khách hàng\nTiêu đề: giữ nguyên ở giữa', note), 'Khách hàng\nTiêu đề: giữ nguyên ở giữa');
+  const m = nudgeNoThink([{ role: 'system', content: 's' }, { role: 'user', content: 'hỏi' }], 'qwen3.8-27b');
+  assert.ok(m[1].content.endsWith('/no_think') && m[0].content === 's');
+  assert.ok(!nudgeNoThink([{ role: 'user', content: 'x' }], 'gpt').at(-1).content.includes('/no_think'));
+});

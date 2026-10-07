@@ -11,7 +11,7 @@ import { renderMarkdown, mdToText } from '../chat/markdown.js';
 import { rankNotes, buildContext } from '../chat/retrieve.js';
 import { parseVnWhen } from '../chat/vndate.js';
 import { diffHTML, lineDiff, diffStats } from '../chat/diff.js';
-import { CONTEXT_MODES, CHAT_MAX_TOKENS, ACTION_MAX_TOKENS, NOTE_ACTIONS, buildChatMessages, buildActionMessages, cleanActionOutput, extractReminder, wantsReminder, titleFrom, capMessages } from '../chat/prompts.js';
+import { CONTEXT_MODES, CHAT_MAX_TOKENS, ACTION_MAX_TOKENS, NOTE_ACTIONS, buildChatMessages, buildActionMessages, cleanActionOutput, nudgeNoThink, extractReminder, wantsReminder, titleFrom, capMessages } from '../chat/prompts.js';
 import { computeLineTimes, effectiveLineTimes } from '../lineTimes.js';
 import { formatDateTime } from '../format.js';
 import { folderTree } from '../folders.js';
@@ -143,7 +143,7 @@ function msgHTML(m, i) {
   const shown = stripThink(raw);
   let body;
   if (m.error) body = `<div class="cm-err">${icon('alert', 16)}<div><b>Không nhận được câu trả lời</b><span>${esc(m.error)}</span></div><button class="btn sm" data-c="retry" data-i="${i}">${icon('refresh', 14)}Thử lại</button></div>`;
-  else if (!shown && m.pending) body = `<div class="cm-wait"><span class="dots"><i></i><i></i><i></i></span>${thinking ? 'Đang suy nghĩ…' : m.slow ? 'Máy chủ AI đang chậm, vẫn đang chờ (tự thử lại nếu bị treo)…' : 'Đang trả lời…'}</div>`;
+  else if (!shown && m.pending) body = `<div class="cm-wait"><span class="dots"><i></i><i></i><i></i></span>${thinking ? 'Đang suy nghĩ…' : m.retrying ? 'AI chưa kịp trả lời, đang tự hỏi lại…' : m.slow ? 'Máy chủ AI đang chậm, vẫn đang chờ (tự thử lại nếu bị treo)…' : 'Đang trả lời…'}</div>`;
   else body = `<div class="md">${renderMarkdown(shown)}</div>${m.stopped ? `<div class="cm-stop">${icon('square', 11)} Đã dừng</div>` : ''}`;
   const src = m.sources?.length ? `<div class="cm-src"><span>${icon('notes', 12)} Nguồn:</span>${m.sources.map(s => `<button type="button" class="srcchip ${app.notes.some(n => n.id === s.id) ? '' : 'gone'}" data-src="${esc(s.id)}" title="Mở ghi chú">${s.k ? `<i>${s.k}</i>` : ''}${esc(s.title)}</button>`).join('')}</div>` : '';
   const rem = m.reminder && !m.pending ? reminderCardHTML(m.reminder, i) : '';
@@ -213,18 +213,21 @@ async function send(text, { action = null, retryIndex = null } = {}) {
   let got = false;
   clearTimeout(S.slowTimer); S.slowTimer = setTimeout(() => { if (!got && reply.pending) { reply.slow = true; drawMsg(idx); } }, 15000);
   try {
-    const out = await app.ai.chat(st.ai, messages, { maxTokens: action ? ACTION_MAX_TOKENS : CHAT_MAX_TOKENS, stream: true, signal: S.ctrl.signal,
+    const call = msgs => app.ai.chat(st.ai, msgs, { maxTokens: action ? ACTION_MAX_TOKENS : CHAT_MAX_TOKENS, stream: true, signal: S.ctrl.signal,
       onDelta: (_, full) => { got = true; reply.content = full; drawMsg(idx); } });
+    let out = await call(messages);
+    // Model “suy nghĩ” hết lượt token mà chưa trả lời (rỗng) → tự thử lại 1 lần, nhắc trả lời ngay
+    if (!stripThink(out).trim() && !S.ctrl.signal.aborted) { reply.content = ''; reply.retrying = true; drawMsg(idx); out = await call(nudgeNoThink(messages, st.c.model)); }
     reply.content = out;
   } catch (e) {
     if (e?.name === 'AbortError') reply.stopped = true;
     else { console.warn('chat', e); reply.error = friendly(e); }
   } finally {
-    clearTimeout(S.slowTimer); S.busy = false; S.ctrl = null; delete reply.pending; delete reply.slow;
+    clearTimeout(S.slowTimer); S.busy = false; S.ctrl = null; delete reply.pending; delete reply.slow; delete reply.retrying;
   }
   if (!reply.error) {
     let txt = stripThink(reply.content);
-    if (action) txt = cleanActionOutput(txt);
+    if (action) txt = cleanActionOutput(txt, note);
     const ex = extractReminder(txt); txt = ex.text;
     let r = ex.reminder;
     const userText = S.msgs[idx - 1]?.content || '';
@@ -243,7 +246,7 @@ async function send(text, { action = null, retryIndex = null } = {}) {
   persist();
 }
 async function persist() {
-  const msgs = capMessages(S.msgs.filter(m => !m.pending && !m.error && (m.role === 'user' || String(m.content || '').trim())).map(({ slow, pending, ...m }) => m));
+  const msgs = capMessages(S.msgs.filter(m => !m.pending && !m.error && (m.role === 'user' || String(m.content || '').trim())).map(({ slow, pending, retrying, ...m }) => m));
   if (!msgs.some(m => m.role === 'assistant')) return;
   try {
     if (!S.convId) { const c = await app.data.chats.create({ title: titleFrom(msgs.find(m => m.role === 'user')?.content), messages: msgs }); S.convId = c.id; }

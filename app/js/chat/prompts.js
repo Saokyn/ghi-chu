@@ -3,7 +3,7 @@ import { WEEKDAYS, vnParts, solarToLunar, yearCanChi } from '../lunar.js';
 import { trimHistory } from './retrieve.js';
 
 export const CONTEXT_MODES = { open: 'Chỉ ghi chú đang mở', search: 'Tìm trong ghi chú của tôi', none: 'Không dùng ghi chú' };
-export const CHAT_MAX_TOKENS = 1800;      // chừa chỗ cho model “suy nghĩ” (<think>) trước khi trả lời (bài học pha 3)
+export const CHAT_MAX_TOKENS = 2000;      // = trần của AI dùng chung; chừa chỗ cho model “suy nghĩ” trước khi trả lời (bài học pha 3)
 export const ACTION_MAX_TOKENS = 2000;
 export const MAX_STORED_MSGS = 60, MAX_MSG_CHARS = 12000;
 
@@ -41,14 +41,25 @@ export const NOTE_ACTIONS = {
 export function buildActionMessages(action, note) {
   const A = NOTE_ACTIONS[action];
   const body = `Tiêu đề: ${String(note.title || '').trim() || '(không tiêu đề)'}\n\n${String(note.content || '')}`.slice(0, 9000);
-  return [{ role: 'system', content: 'Bạn là trợ lý biên tập ghi chú tiếng Việt. ' + A.prompt }, { role: 'user', content: '<ghi_chu>\n' + body + '\n</ghi_chu>' }];
+  return [{ role: 'system', content: 'Bạn là trợ lý biên tập ghi chú tiếng Việt. ' + A.prompt + ' Không lặp lại dòng “Tiêu đề:” trong câu trả lời.' }, { role: 'user', content: '<ghi_chu>\n' + body + '\n</ghi_chu>' }];
 }
 /** Làm sạch đầu ra của thao tác (bỏ <think>, bỏ rào ``` bọc ngoài, bỏ lời dẫn kiểu “Đây là…:”) */
-export function cleanActionOutput(text) {
+export function cleanActionOutput(text, note = null) {
   let s = String(text || '').replace(/<(mm:)?think>[\s\S]*?(<\/(mm:)?think>|$)/gi, '').trim();
   const f = s.match(/^```[\w-]*\n([\s\S]*?)\n```$/); if (f) s = f[1];
   s = s.replace(/^(đây là|dưới đây là|ghi chú (đã|sau khi)[^\n]{0,40}|bản (đã )?(sửa|viết lại)[^\n]{0,30})[^\n]{0,60}:\s*\n+/i, '');
-  return s.replace(/^<\/?ghi_chu>\s*|\s*<\/?ghi_chu>$/g, '').trim();
+  s = s.replace(/^<\/?ghi_chu>\s*|\s*<\/?ghi_chu>$/g, '').trim();
+  // model hay chép lại dòng “Tiêu đề: …” mà ta gửi kèm → bỏ, kẻo bị chèn vào nội dung ghi chú
+  s = s.replace(/^(\*\*)?(tiêu đề|title)(\*\*)?\s*:[^\n]*\n+/i, '');
+  const t = String(note?.title || '').trim();
+  if (t) { const first = s.split('\n')[0].replace(/^#+\s*|\*\*/g, '').trim(); if (first === t) s = s.slice(s.indexOf('\n') + 1 || s.length).replace(/^\n+/, ''); }
+  return s.trim();
+}
+/** Thêm lời nhắc “trả lời ngay” cho lần tự thử lại khi model dùng hết token cho phần suy nghĩ (Qwen hiểu /no_think). */
+export function nudgeNoThink(messages, model = '') {
+  const out = messages.map(m => ({ ...m })); const i = out.map(m => m.role).lastIndexOf('user');
+  if (i >= 0) out[i].content += '\n\n(Trả lời ngắn gọn, trực tiếp; không cần suy luận dài.)' + (/qwen/i.test(model) ? ' /no_think' : '');
+  return out;
 }
 /** Đề xuất nhắc việc trong câu trả lời: [[NHẮC: nội dung | thời gian]] → { title, when, text (đã bỏ dòng đó) } */
 export function extractReminder(text) {
