@@ -29,7 +29,7 @@ const json = (obj: unknown, status = 200) =>
 
 const TIMEOUT_MS = 60_000;          // gọi AI
 const FETCH_TIMEOUT_MS = 15_000;
-const STREAM_TIMEOUT_MS = 140_000;    // stream AI (dưới giới hạn 150 s của Edge Function; Intern tự dừng sau 120 s)    // đọc trang web
+const STREAM_TIMEOUT_MS = 45_000;     // stream AI: chờ tối đa 45 s tới khi nhà cung cấp bắt đầu trả lời (tránh treo im lặng); luồng sau đó chạy tới giới hạn của Edge Function    // đọc trang web
 const MAX_PAGE_BYTES = 3_000_000;   // tối đa 3 MB HTML
 const MAX_BODY_BYTES = 400_000;     // body gửi lên tối đa ~400 KB
 const MAX_TEXT = 30_000;
@@ -49,6 +49,7 @@ function isPrivateIp(ip: string): boolean {
   return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
 }
+const DNS_CACHE = new Map<string, { addrs: string[]; until: number }>();
 async function assertPublicUrl(raw: string, { httpsOnly = false } = {}): Promise<URL> {
   let u: URL;
   try { u = new URL(raw); } catch { throw new HttpError(400, 'URL không hợp lệ'); }
@@ -60,10 +61,11 @@ async function assertPublicUrl(raw: string, { httpsOnly = false } = {}): Promise
     throw new HttpError(400, 'Không được gọi tới địa chỉ nội bộ');
   if (/^[\d.]+$/.test(host) || host.includes(':')) { if (isPrivateIp(host)) throw new HttpError(400, 'Không được gọi tới địa chỉ nội bộ'); return u; }
   try {
-    const addrs = [
-      ...(await Deno.resolveDns(host, 'A').catch(() => [] as string[])),
-      ...(await Deno.resolveDns(host, 'AAAA').catch(() => [] as string[])),
-    ];
+    // A + AAAA song song, có giới hạn thời gian (DNS tên miền .cn từ edge ~0.2–0.5 s mỗi loại).
+    const cached = DNS_CACHE.get(host);
+    const addrs = cached && cached.until > Date.now() ? cached.addrs : (await Promise.all((['A', 'AAAA'] as const).map(t =>
+      Promise.race([Deno.resolveDns(host, t).catch(() => [] as string[]), new Promise<string[]>(r => setTimeout(() => r([]), 2000))])))).flat();
+    if (addrs.length) DNS_CACHE.set(host, { addrs, until: Date.now() + 60_000 });
     if (!addrs.length) throw new HttpError(400, 'Không phân giải được tên miền ' + host);
     // ALLOW_FAKE_IP_DNS=1 chỉ dùng khi chạy thử ở máy có DNS "fake-IP" (trả về 198.18.0.0/15). KHÔNG bật khi deploy.
     const fakeIpOk = Deno.env.get('ALLOW_FAKE_IP_DNS') === '1';
