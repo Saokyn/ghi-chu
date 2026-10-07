@@ -29,7 +29,7 @@ const json = (obj: unknown, status = 200) =>
 
 const TIMEOUT_MS = 60_000;          // gọi AI
 const FETCH_TIMEOUT_MS = 15_000;
-const STREAM_TIMEOUT_MS = 25_000;     // stream AI: chờ tối đa 25 s tới khi nhà cung cấp bắt đầu trả lời (tránh treo im lặng); luồng sau đó chạy tới giới hạn của Edge Function    // đọc trang web
+const STREAM_FIRST_MS = 12_000, STREAM_RETRY_MS = 20_000;     // stream AI: chờ nhà cung cấp bắt đầu trả lời (12 s, thử lại 1 lần 20 s); luồng sau đó chạy tới giới hạn của Edge Function    // đọc trang web
 const MAX_PAGE_BYTES = 3_000_000;   // tối đa 3 MB HTML
 const MAX_BODY_BYTES = 400_000;     // body gửi lên tối đa ~400 KB
 const MAX_TEXT = 30_000;
@@ -256,9 +256,14 @@ async function handle(req: Request): Promise<Response> {
     let res: Response;
     if (action === 'chat') {
       const wantStream = p.stream === true;
-      const body = p.body && typeof p.body === 'object' ? { ...p.body, stream: wantStream } : null;
-      if (!body || !Array.isArray(body.messages)) throw new HttpError(400, 'body.messages không hợp lệ');
-      res = await safeFetch(base + '/chat/completions', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', ...(wantStream ? { Accept: 'text/event-stream' } : {}) }, body: JSON.stringify(body) }, wantStream ? STREAM_TIMEOUT_MS : TIMEOUT_MS, { httpsOnly: true });
+      const raw0 = p.body && typeof p.body === 'object' ? { ...p.body, stream: wantStream } : null;
+      if (!raw0 || !Array.isArray(raw0.messages)) throw new HttpError(400, 'body.messages không hợp lệ');
+      // Đặt messages CUỐI CÙNG: cổng Intern/Discovery hay treo khi max_tokens… đứng sau messages (đo được: 2/9 thành công vs 7/7).
+      const { messages: msgs, ...params } = raw0; const body = { ...params, messages: msgs };
+      const call = (ms: number) => safeFetch(base + '/chat/completions', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', ...(wantStream ? { Accept: 'text/event-stream' } : {}) }, body: JSON.stringify(body) }, ms, { httpsOnly: true });
+      // Intern/Discovery đôi khi "treo" ngẫu nhiên một yêu cầu (không trả header). Stream: chờ 12 s, treo thì gửi lại 1 lần (chờ thêm 20 s).
+      try { res = await call(wantStream ? STREAM_FIRST_MS : TIMEOUT_MS); }
+      catch (e) { if (wantStream && e instanceof HttpError && e.status === 504) res = await call(STREAM_RETRY_MS); else throw e; }
       // Stream: chuyển tiếp nguyên luồng SSE (không đệm) để trình duyệt thấy chữ ngay khi model bắt đầu trả lời.
       if (wantStream && res.ok && (res.headers.get('content-type') || '').includes('text/event-stream') && res.body)
         return new Response(res.body, { status: 200, headers: { ...CORS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Upstream-Status': String(res.status) } });
