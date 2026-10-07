@@ -14,8 +14,12 @@
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
+// Nguồn được phép gọi (CORS): ALLOWED_ORIGINS="https://a.github.io,http://127.0.0.1:5180" (hoặc ALLOWED_ORIGIN cũ).
+// Không đặt → cho mọi nguồn ("*"). Yêu cầu từ trình duyệt có Origin khác danh sách bị từ chối 403.
+const ALLOWED = (Deno.env.get('ALLOWED_ORIGINS') ?? Deno.env.get('ALLOWED_ORIGIN') ?? '*')
+  .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+const originOk = (o: string | null) => !o || ALLOWED.includes('*') || ALLOWED.includes(o);
 const CORS: Record<string, string> = {
-  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') ?? '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
@@ -142,6 +146,16 @@ const EXTRA_HEADERS: Record<string, Record<string, string>> = {
 };
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get('Origin');
+  if (!originOk(origin)) return new Response(JSON.stringify({ error: 'Nguồn không được phép' }), { status: 403, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Vary': 'Origin' } });
+  const res = await handle(req);
+  const h = new Headers(res.headers);
+  h.set('Access-Control-Allow-Origin', ALLOWED.includes('*') ? '*' : (origin ?? ALLOWED[0]));
+  h.set('Vary', 'Origin');
+  return new Response(res.body, { status: res.status, headers: h });
+});
+
+async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Chỉ hỗ trợ POST' }, 405);
 
@@ -210,4 +224,4 @@ Deno.serve(async (req) => {
     console.error('ai-proxy', e);
     return json({ status: 502, data: { error: 'Lỗi proxy: ' + (e as Error).message } });
   }
-});
+}
