@@ -70,6 +70,7 @@ try {
   const prop = (await lastAi().locator('.md').textContent()).trim();
   console.log('    đề xuất sửa:', prop.replace(/\s+/g, ' ').slice(0, 160));
   check(await A(id => window.__app.notes.find(n => n.id === id).content.includes('hàg'), ids.typo), 'chưa đổi ghi chú trước khi xác nhận');
+  check(!/Tiêu đề|\[KT4/i.test(prop), 'đề xuất không chép dòng “Tiêu đề” vào nội dung');
   const canPrev = await lastAi().locator('[data-c=preview]').count();
   check(canPrev === 1, 'có nút “Xem thay đổi & áp dụng”');
   if (canPrev) {
