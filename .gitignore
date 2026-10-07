@@ -16,3 +16,5 @@ tmp/
 *.pem
 *.key
 .DS_Store
+.vapid.json
+.cron-secret

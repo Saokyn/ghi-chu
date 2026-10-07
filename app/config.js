@@ -7,3 +7,7 @@ export const SUPABASE_ANON_KEY = 'sb_publishable_nS0cRWRxJTA53nqnNHqVWw_3RBRYAEW
 
 // Tên Edge Function dùng làm proxy AI / đọc nội dung link (xem supabase/functions/ai-proxy).
 export const AI_PROXY_FUNCTION = 'ai-proxy';
+
+// Khoá công khai VAPID cho Web Push (nhắc việc khi đã đóng app). Khoá bí mật chỉ nằm trong secret của Edge Function send-reminders.
+export const VAPID_PUBLIC_KEY = 'BDC16OCVJdVXkQ3xcsYG69ZXtQX1MCgQ_QYtE125RpGnqIQphzxNLFs1dSqlYAEaSFRkzehcacatjKfwl25Tfv4';
+export const PUSH_FUNCTION = 'send-reminders';

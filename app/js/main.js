@@ -7,6 +7,9 @@ import { $, $$, esc, toast, copyText, fold, initials, imageFromPaste, debounce }
 import { icon } from './icons.js';
 import { formatDateTime, setLunarStamps } from './format.js';
 import { clockHTML, startClock, openCalendar } from './ui/calendar.js';
+import { loadReminders, renderReminders, openReminderDialog, startReminderTicker, remindersCount, activeReminderOf, syncPushOnEnter, refreshPushState } from './ui/reminders.js';
+import { loadAnnouncements, renderBanner } from './ui/announce.js';
+import { setReminderLookup } from './ui/notes.js';
 import { renderAuth, showRecovery } from './ui/auth.js';
 import { notesAreaHTML, listRegionHTML, twoPaneListHTML, hydrateImages, copyTextOf, dayChipHTML } from './ui/notes.js';
 import { Editor } from './ui/editor.js';
@@ -103,6 +106,7 @@ async function enter(u) {
     app.aiSettings = await app.data.ai.get();
     await app.loadSharedAi();
     app.notes = await app.data.notes.list();
+    await Promise.all([loadReminders(app), loadAnnouncements(app)]);
     setLunarStamps(app.prefs.showLunar);
     applyTheme();
     app.entered = true;
@@ -113,15 +117,22 @@ async function enter(u) {
       app.sync = status === 'SUBSCRIBED' ? 'ok' : (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') ? 'off' : 'connecting';
       updateSync();
     });
+    app.unsubRem?.(); app.unsubAnn?.();
+    app.unsubRem = app.data.reminders?.subscribe(() => app.reloadReminders());
+    app.unsubAnn = app.data.announcements?.subscribe(() => app.onAnnouncementsChanged());
     readRoute();
     renderShell();
+    startReminderTicker(app);
+    syncPushOnEnter(app).then(() => refreshPushState(app));
   } catch (e) {
     console.error(e); toast('Lỗi tải dữ liệu: ' + e.message, { kind: 'err', ms: 6000 });
     showAuth();
   } finally { app._entering = null; }
 }
 function leave() {
-  app.unsub?.(); app.unsub = null;
+  app.unsub?.(); app.unsub = null; app.unsubRem?.(); app.unsubRem = null; app.unsubAnn?.(); app.unsubAnn = null;
+  app.reminders = []; app.announcements = []; app.filter.day = null;
+  document.getElementById('ralerts')?.remove();
   app.entered = false; app.user = null; app.notes = []; app.selectedId = null;
   app.paneEditor?.destroy(); app.paneEditor = null; app.modalEditor = null;
   $('#layer').innerHTML = '';
@@ -130,7 +141,7 @@ function leave() {
 function showAuth() { renderAuth($('#root'), app); }
 
 /* ============================== điều hướng ============================== */
-const ROUTES = { 'cai-dat': 'settings', 'quan-tri': 'admin' };
+const ROUTES = { 'cai-dat': 'settings', 'quan-tri': 'admin', 'nhac-viec': 'reminders' };
 function readRoute() {
   const h = location.hash.replace(/^#\/?/, '').split('/');
   const name = ROUTES[h[0]] || 'notes';
@@ -153,15 +164,18 @@ function navHTML() {
   const c = counts(), r = app.route, f = app.filter.nav, onNotes = r.name === 'notes';
   const item = (key, ic, label, n, on, attr) => `<button class="nav ${on ? 'on' : ''}" ${attr} data-tip="${esc(label)}">${icon(ic)}<span class="lb">${esc(label)}</span>${n != null ? `<span class="n">${n}</span>` : ''}</button>`;
   let h = NAVS.map(([k, ic, l]) => item(k, ic, l, c[k], onNotes && f === k, `data-nav="${k}"`)).join('');
+  const rc = remindersCount(app);
+  h += `<button class="nav ${r.name === 'reminders' ? 'on' : ''}" data-go="#/nhac-viec" data-tip="Nhắc việc">${icon('bell')}<span class="lb">Nhắc việc</span>${rc ? `<span class="n hot">${rc}</span>` : ''}</button>`;
   h += `<div class="sec">Loại ghi chú</div>`;
   h += Object.entries(NOTE_TYPES).map(([k, t]) => item(k, t.icon, t.label, c[k], onNotes && f === k, `data-nav="${k}"`)).join('');
   h += `<div class="sec">Khác</div>`;
   h += item('settings', 'settings', 'Cài đặt', null, r.name === 'settings', `data-go="#/cai-dat/${r.name === 'settings' ? r.tab || 'ai' : 'ai'}"`);
   if (app.user?.role === 'admin') {
     h += `<div class="sec">Quản trị</div>`;
-    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && !['nguoi-dung', 'ai-dung-chung'].includes(r.tab), `data-go="#/quan-tri/giao-dien"`);
+    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && !['nguoi-dung', 'ai-dung-chung', 'thong-bao'].includes(r.tab), `data-go="#/quan-tri/giao-dien"`);
     h += item('users', 'users', 'Người dùng', null, r.name === 'admin' && r.tab === 'nguoi-dung', `data-go="#/quan-tri/nguoi-dung"`);
     h += item('sharedai', 'ai', 'AI dùng chung', null, r.name === 'admin' && r.tab === 'ai-dung-chung', `data-go="#/quan-tri/ai-dung-chung"`);
+    h += item('ann', 'megaphone', 'Thông báo', null, r.name === 'admin' && r.tab === 'thong-bao', `data-go="#/quan-tri/thong-bao"`);
   }
   return h;
 }
@@ -211,17 +225,20 @@ function renderShell() {
         ${themeBtnHTML()}
         <button class="btn-add" data-act="add" aria-haspopup="menu">${icon('plus', 18, 2.4)}Thêm mới<span class="chev">${icon('down', 15)}</span></button>
       </header>
+      <div id="ann" class="annwrap"></div>
       <div class="content" id="content"></div>
     </main>
     <nav class="tabbar">
       <button class="${r.name === 'notes' && app.filter.nav !== 'pinned' && app.filter.nav !== 'ai' ? 'on' : ''}" data-tab="all">${icon('notes', 22)}Ghi chú</button>
       <button class="${r.name === 'notes' && app.filter.nav === 'pinned' ? 'on' : ''}" data-tab="pinned">${icon('pin', 22)}Đã ghim</button>
+      <button class="${r.name === 'reminders' ? 'on' : ''}" data-go="#/nhac-viec">${icon('bell', 22)}Nhắc việc${remindersCount(app) ? `<i class="tb-n">${remindersCount(app)}</i>` : ''}</button>
       <button class="${r.name === 'notes' && app.filter.nav === 'ai' ? 'on' : ''}" data-tab="ai">${icon('ai', 22)}AI tóm tắt</button>
-      <button class="${r.name !== 'notes' ? 'on' : ''}" data-tab="settings">${icon('settings', 22)}Cài đặt</button>
+      <button class="${r.name === 'settings' || r.name === 'admin' ? 'on' : ''}" data-tab="settings">${icon('settings', 22)}Cài đặt</button>
     </nav>
     ${r.name === 'notes' ? `<button class="fab" data-act="add">${icon('plus', 20, 2.6)}Thêm mới</button>` : ''}
   </div>`;
   renderContent();
+  renderBanner(app);
   startClock();
 }
 app.renderShell = renderShell;
@@ -231,6 +248,7 @@ function renderContent() {
   const r = app.route;
   if (r.name === 'settings') { renderSettings(el, app, r.tab || 'ai'); return; }
   if (r.name === 'admin') { renderAdmin(el, app, r.tab || 'giao-dien'); return; }
+  if (r.name === 'reminders') { renderReminders(el, app); return; }
   const view = isMobile() && app.effectiveView() === 'twopane' ? 'list' : app.effectiveView();
   el.innerHTML = notesAreaHTML(app, view);
   hydrateImages(el, app);
@@ -312,6 +330,35 @@ app.setDayFilter = (key) => {
   if (app.route.name !== 'notes') { app.navigate('#/'); return; }
   renderShell();
 };
+/* ---------- nhắc việc + thông báo ---------- */
+setReminderLookup(id => activeReminderOf(app, id));
+app.openReminder = ({ note = null, reminder = null } = {}) => {
+  if (!reminder && note) reminder = activeReminderOf(app, note.id);
+  return openReminderDialog(app, { note, reminder });
+};
+let remSig = '';
+app.onRemindersChanged = (quiet = false) => {
+  if (!app.entered) return;
+  const now = Date.now(), sig = (app.reminders || []).map(r => r.id + r.next_at + r.status + (r.next_at && Date.parse(r.next_at) <= now ? 'D' : '')).join('|') + remindersCount(app);
+  if (quiet && sig === remSig) return;
+  remSig = sig;
+  const nav = $('#nav'); if (nav) nav.innerHTML = navHTML();
+  const tb = $('.tabbar [data-go="#/nhac-viec"]'); if (tb) { const n = remindersCount(app); tb.innerHTML = `${icon('bell', 22)}Nhắc việc${n ? `<i class="tb-n">${n}</i>` : ''}`; }
+  if (app.route.name === 'reminders') { const el = $('#content'); if (el && !el.querySelector('.snz .smenu:not([hidden])')) renderReminders(el, app); }
+  else if (app.route.name === 'notes') renderList();
+};
+app.reloadReminders = debounce(async () => { if (!app.entered) return; await loadReminders(app); app.onRemindersChanged(); }, 300);
+app.onAnnouncementsChanged = debounce(async () => { if (!app.entered) return; await loadAnnouncements(app); renderBanner(app); }, 300);
+// Cài app (PWA): Chrome/Edge/Android báo sự kiện beforeinstallprompt
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; });
+window.addEventListener('appinstalled', () => { installEvt = null; toast('Đã cài Ghi Chú lên thiết bị'); });
+app.canInstall = () => !!installEvt;
+app.promptInstall = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; };
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === '127.0.0.1' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+  navigator.serviceWorker.addEventListener('message', ev => { if (ev.data?.type === 'push') app.reloadReminders?.(); });
+}
 app.newNote = (type = 'text', extra = {}) => app.openNote(Object.assign({ _draft: true, type, title: '', content: '', pinned: false }, extra));
 
 /* ============================== thao tác ghi chú ============================== */
@@ -466,6 +513,7 @@ document.addEventListener('click', async e => {
     e.stopPropagation();
     if (act === 'add') { openAddMenu(app, t); return; }
     if (act === 'cal') { openCalendar(app); return; }
+    if (act === 'remind' && id) { const n = app.notes.find(x => x.id === id); if (n) app.openReminder({ note: n }); return; }
     if (act === 'dayclear') { app.setDayFilter(null); return; }
     if (act === 'theme') {
       const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';

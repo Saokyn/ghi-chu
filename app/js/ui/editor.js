@@ -93,6 +93,7 @@ export class Editor {
         <span class="dirty-pill" hidden>Chưa lưu</span>
         <label class="tg" title="Hiện thời gian lưu của từng dòng"><button class="sw ${lt ? 'on' : ''}" data-e="lt" role="switch" aria-checked="${lt}" aria-label="Hiện thời gian theo dòng"></button><span class="lbt">Hiện thời gian theo dòng</span></label>
         <div class="cpk"><button class="ib cbtn" data-e="color" aria-label="Chọn màu ghi chú" aria-haspopup="true" aria-expanded="false"><span class="cdot"></span></button><div class="cpop" hidden></div></div>
+        <button class="ib" data-e="remind" title="Đặt nhắc việc" aria-label="Đặt nhắc việc">${icon('alarm', 17)}</button>
         <button class="ib" data-e="copy" title="Sao chép văn bản" aria-label="Sao chép">${icon('copy', 17)}</button>
         <button class="ib ${this.pinned ? 'on' : ''}" data-e="pin" title="Ghim" aria-label="Ghim">${icon('pin', 17)}</button>
         <button class="ib danger" data-e="del" title="Xoá" aria-label="Xoá">${icon('trash', 17)}</button>
@@ -205,6 +206,10 @@ export class Editor {
     const k = b.dataset.e;
     if (k === 'close') this.onRequestClose?.();
     else if (k === 'save') this.save();
+    else if (k === 'remind') {
+      if (!this.saved) { if (!this.isDirty()) { toast('Viết ghi chú rồi lưu trước khi đặt nhắc', { kind: 'info' }); return; } await this.save(); }
+      if (this.saved) this.app.openReminder({ note: this.saved });
+    }
     else if (k === 'color') this.toggleColorPop();
     else if (k === 'setcolor') this.pickColor(b.dataset.c);
     else if (k === 'lt') {

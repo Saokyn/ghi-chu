@@ -81,4 +81,4 @@ exception when insufficient_privilege then raise notice 'OK: anon không đọc 
 do $$ begin perform 1 from public.notes; raise exception 'LỖI: anon đọc notes được';
 exception when insufficient_privilege then raise notice 'OK: anon không đọc được notes'; end $$;
 reset role;
-select 'realtime publication' as kiem_tra, count(*) = 2 as dat from pg_publication_tables where pubname = 'supabase_realtime';
+select 'realtime publication' as kiem_tra, count(*) = 4 as dat from pg_publication_tables where pubname = 'supabase_realtime' and tablename in ('notes','app_settings','reminders','announcements');

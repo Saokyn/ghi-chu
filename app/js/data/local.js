@@ -188,6 +188,39 @@ export function createLocalAdapter() {
         u.allow_custom_ai = !!allow; write('users', all);
       },
     },
+    // Nhắc việc (demo: lưu trên máy; chỉ nhắc khi app đang mở — không có Web Push)
+    reminders: {
+      async list() { need(); return read('reminders.' + user.id, []); },
+      async create(f) {
+        need(); const t = nowIso();
+        const r = Object.assign({ id: uuid(), note_id: null, title: '', basis: 'solar', repeat: 'none', lunar_day: null, lunar_month: null, status: 'active', notified_at: null }, f, { user_id: user.id, created_at: t, updated_at: t });
+        const l = read('reminders.' + user.id, []); l.push(r); write('reminders.' + user.id, l); return r;
+      },
+      async update(id, patch) {
+        need(); const l = read('reminders.' + user.id, []); const i = l.findIndex(x => x.id === id);
+        if (i < 0) throw new Error('Không tìm thấy nhắc việc.');
+        l[i] = Object.assign({}, l[i], patch, { id, user_id: user.id, updated_at: nowIso() }); write('reminders.' + user.id, l); return l[i];
+      },
+      async remove(id) { need(); write('reminders.' + user.id, read('reminders.' + user.id, []).filter(x => x.id !== id)); },
+      subscribe() { return () => {}; },
+    },
+    // Thông báo của quản trị viên
+    announcements: {
+      async list() {
+        need(); const now = Date.now(), all = read('announcements', []);
+        return user.role === 'admin' ? all : all.filter(a => Date.parse(a.starts_at) <= now && (!a.ends_at || Date.parse(a.ends_at) > now));
+      },
+      async save(a) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên mới đăng được thông báo.');
+        const all = read('announcements', []), t = nowIso(), i = a.id ? all.findIndex(x => x.id === a.id) : -1;
+        const { id: _id, ...fields } = a;
+        const row = Object.assign(i >= 0 ? all[i] : { id: uuid(), created_at: t, created_by: user.id }, fields, { updated_at: t });
+        if (i >= 0) all[i] = row; else all.unshift(row); write('announcements', all); return row;
+      },
+      async remove(id) { need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên mới xoá được thông báo.'); write('announcements', read('announcements', []).filter(x => x.id !== id)); },
+      subscribe() { return () => {}; },
+    },
+    push: { available: false },
     proxy: { available: false, async call() { throw new Error('Proxy (Supabase Edge Function) chỉ dùng được khi đã cấu hình Supabase.'); } },
     demo: {
       async setAdmin(on) {

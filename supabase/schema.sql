@@ -473,4 +473,148 @@ grant execute on function public.admin_set_allow_custom_ai(uuid, boolean) to aut
 grant execute on function public.shared_ai_take(uuid) to service_role;
 grant execute on function public.admin_list_users(int) to authenticated;
 
+
+-- =====================================================================
+-- Nhắc việc + Web Push + Thông báo của quản trị (pha 2). Chạy lại nhiều lần được.
+-- =====================================================================
+create table if not exists public.reminders (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  note_id      uuid references public.notes(id) on delete cascade,
+  title        text not null default '' check (char_length(title) <= 300),
+  at           timestamptz not null,                       -- lần nhắc đầu tiên (giờ VN khi hiển thị)
+  basis        text not null default 'solar' check (basis in ('solar', 'lunar')),
+  repeat       text not null default 'none' check (repeat in ('none', 'daily', 'weekly', 'monthly', 'yearly')),
+  lunar_day    smallint check (lunar_day between 1 and 30),
+  lunar_month  smallint check (lunar_month between 1 and 12),
+  next_at      timestamptz,                                -- lần nhắc kế tiếp (null = hết)
+  status       text not null default 'active' check (status in ('active', 'done')),
+  notified_at  timestamptz,                                -- = next_at đã gửi gần nhất (chống gửi trùng)
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  check (basis = 'solar' or lunar_day is not null)
+);
+create index if not exists reminders_user_idx on public.reminders (user_id, next_at);
+create index if not exists reminders_due_idx on public.reminders (next_at) where status = 'active';
+drop trigger if exists reminders_touch on public.reminders;
+create or replace function public.reminders_touch()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := now(); new.user_id := old.user_id; new.created_at := old.created_at;   -- không đổi chủ
+  return new;
+end $$;
+create trigger reminders_touch before update on public.reminders for each row execute function public.reminders_touch();
+alter table public.reminders enable row level security;
+drop policy if exists reminders_select on public.reminders;
+create policy reminders_select on public.reminders for select to authenticated using (user_id = auth.uid());
+drop policy if exists reminders_insert on public.reminders;
+create policy reminders_insert on public.reminders for insert to authenticated with check (
+  user_id = auth.uid() and (note_id is null or exists (select 1 from public.notes n where n.id = note_id and n.user_id = auth.uid())));
+drop policy if exists reminders_update on public.reminders;
+create policy reminders_update on public.reminders for update to authenticated using (user_id = auth.uid()) with check (
+  user_id = auth.uid() and (note_id is null or exists (select 1 from public.notes n where n.id = note_id and n.user_id = auth.uid())));
+drop policy if exists reminders_delete on public.reminders;
+create policy reminders_delete on public.reminders for delete to authenticated using (user_id = auth.uid());
+revoke all on public.reminders from anon;
+grant select, insert, update, delete on public.reminders to authenticated;
+grant all on public.reminders to service_role;
+
+-- Đăng ký Web Push của từng trình duyệt. Một endpoint chỉ thuộc một người (đổi tài khoản trên cùng máy → chuyển chủ).
+create table if not exists public.push_subscriptions (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  endpoint    text not null unique check (endpoint ~ '^https://'),
+  p256dh      text not null,
+  auth        text not null,
+  ua          text not null default '' check (char_length(ua) <= 300),
+  created_at  timestamptz not null default now(),
+  last_ok_at  timestamptz,
+  fail_count  int not null default 0
+);
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
+alter table public.push_subscriptions enable row level security;
+drop policy if exists push_select on public.push_subscriptions;
+create policy push_select on public.push_subscriptions for select to authenticated using (user_id = auth.uid());
+drop policy if exists push_delete on public.push_subscriptions;
+create policy push_delete on public.push_subscriptions for delete to authenticated using (user_id = auth.uid());
+revoke all on public.push_subscriptions from anon, authenticated;
+grant select, delete on public.push_subscriptions to authenticated;   -- thêm/sửa qua RPC save_push_subscription
+grant all on public.push_subscriptions to service_role;
+
+create or replace function public.save_push_subscription(p_endpoint text, p_p256dh text, p_auth text, p_ua text default '')
+returns uuid language plpgsql security definer set search_path = public as $$
+declare rid uuid;
+begin
+  if auth.uid() is null then raise exception 'Cần đăng nhập' using errcode = '42501'; end if;
+  if p_endpoint !~ '^https://' or length(p_endpoint) > 1000 or length(coalesce(p_p256dh, '')) not between 80 and 100 or length(coalesce(p_auth, '')) not between 16 and 32 then
+    raise exception 'Đăng ký push không hợp lệ' using errcode = '22023';
+  end if;
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, ua)
+  values (auth.uid(), p_endpoint, p_p256dh, p_auth, left(coalesce(p_ua, ''), 300))
+  on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua, fail_count = 0
+  returning id into rid;
+  return rid;
+end $$;
+revoke all on function public.save_push_subscription(text, text, text, text) from public, anon;
+grant execute on function public.save_push_subscription(text, text, text, text) to authenticated;
+
+-- Hàm cho Edge Function send-reminders (chỉ service_role): khoá + đánh dấu các nhắc việc đến hạn, trả về để gửi.
+create or replace function public.claim_due_reminders(max_rows int default 200)
+returns setof public.reminders language plpgsql security definer set search_path = public as $$
+begin
+  return query
+  with due as (
+    select r.id from public.reminders r
+    where r.status = 'active' and r.next_at is not null and r.next_at <= now()
+      and (r.notified_at is null or r.notified_at < r.next_at)
+    order by r.next_at limit max_rows for update skip locked)
+  update public.reminders r set notified_at = r.next_at from due where r.id = due.id returning r.*;
+end $$;
+revoke all on function public.claim_due_reminders(int) from public, anon, authenticated;
+grant execute on function public.claim_due_reminders(int) to service_role;
+
+-- Thông báo của quản trị viên (banner)
+create table if not exists public.announcements (
+  id          uuid primary key default gen_random_uuid(),
+  title       text not null check (char_length(title) between 1 and 200),
+  content     text not null default '' check (char_length(content) <= 4000),
+  level       text not null default 'normal' check (level in ('normal', 'important', 'urgent')),
+  starts_at   timestamptz not null default now(),
+  ends_at     timestamptz,
+  created_by  uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  check (ends_at is null or ends_at > starts_at)
+);
+drop trigger if exists announcements_touch on public.announcements;
+create or replace function public.announcements_touch()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := now(); new.created_by := old.created_by; new.created_at := old.created_at;
+  return new;
+end $$;
+create trigger announcements_touch before update on public.announcements for each row execute function public.announcements_touch();
+alter table public.announcements enable row level security;
+drop policy if exists ann_select on public.announcements;
+create policy ann_select on public.announcements for select to authenticated
+  using (public.is_admin() or (starts_at <= now() and (ends_at is null or ends_at > now())));
+drop policy if exists ann_insert on public.announcements;
+create policy ann_insert on public.announcements for insert to authenticated with check (public.is_admin());
+drop policy if exists ann_update on public.announcements;
+create policy ann_update on public.announcements for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists ann_delete on public.announcements;
+create policy ann_delete on public.announcements for delete to authenticated using (public.is_admin());
+revoke all on public.announcements from anon, authenticated;
+grant select, insert, update, delete on public.announcements to authenticated;
+grant all on public.announcements to service_role;
+
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'reminders') then
+      alter publication supabase_realtime add table public.reminders; end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'announcements') then
+      alter publication supabase_realtime add table public.announcements; end if;
+  end if;
+end $$;
+
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

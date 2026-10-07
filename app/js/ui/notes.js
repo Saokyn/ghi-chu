@@ -1,7 +1,7 @@
 // Vẽ danh sách ghi chú: Danh sách (mockup A), Lưới thẻ (mockup B), Hai cột (mockup C).
 import { esc, fold, domainOf, safeUrl } from '../util.js';
 import { icon } from '../icons.js';
-import { formatDateTime, formatStamp } from '../format.js';
+import { formatDateTime, formatStamp, formatShort } from '../format.js';
 import { vnDateKey } from '../lunar.js';
 import { describeDay } from './calendar.js';
 import { NOTE_TYPES } from '../defaults.js';
@@ -102,13 +102,22 @@ export function listRegionHTML(app, view) {
     (view === 'grid' ? `<div class="gridv">${g.items.map(n => cardHTML(n, app)).join('')}</div>` : `<div class="list">${g.items.map(n => rowHTML(n, app)).join('')}</div>`)).join('');
 }
 
+let remLookup = () => null;
+/** main.js gắn hàm tìm nhắc việc đang bật của ghi chú (để hiện chuông trên danh sách) */
+export function setReminderLookup(f) { remLookup = f; }
+function remBadge(n, sz) {
+  const r = remLookup(n.id); if (!r) return '';
+  const due = Date.parse(r.next_at) <= Date.now();
+  return `<span class="rbell ${due ? 'due' : ''}" title="Nhắc việc">${icon('bell', sz)}${formatShort(r.next_at)}</span>`;
+}
 function metaHTML(n, sz = 12) {
   const d = n.type === 'link' ? domainOf(n.url) : sourceUrl(n) ? domainOf(n.ai_source) : '';
-  return `<span>${icon('plus', sz)}Tạo ${formatStamp(n.created_at)}</span><span>${icon('edit', sz)}Sửa ${formatStamp(n.updated_at)}</span>${d ? `<span>${icon('link', sz)}${esc(d)}</span>` : ''}`;
+  return remBadge(n, sz) + `<span>${icon('plus', sz)}Tạo ${formatStamp(n.created_at)}</span><span>${icon('edit', sz)}Sửa ${formatStamp(n.updated_at)}</span>${d ? `<span>${icon('link', sz)}${esc(d)}</span>` : ''}`;
 }
 function actsHTML(n, sz = 17) {
   return `<button class="ib" data-act="copy" data-id="${n.id}" title="Sao chép văn bản" aria-label="Sao chép">${icon('copy', sz)}</button>`
     + `<button class="ib pinb ${n.pinned ? 'on' : ''}" data-act="pin" data-id="${n.id}" title="${n.pinned ? 'Bỏ ghim' : 'Ghim lên đầu'}" aria-label="${n.pinned ? 'Bỏ ghim' : 'Ghim'}">${icon('pin', sz)}</button>`
+    + `<button class="ib hov ${remLookup(n.id) ? 'on' : ''}" data-act="remind" data-id="${n.id}" title="Đặt nhắc việc" aria-label="Đặt nhắc việc">${icon('alarm', sz)}</button>`
     + `<button class="ib hov" data-act="edit" data-id="${n.id}" title="Sửa" aria-label="Sửa">${icon('edit', sz)}</button>`
     + `<button class="ib hov danger" data-act="del" data-id="${n.id}" title="Xoá" aria-label="Xoá">${icon('trash', sz)}</button>`;
 }

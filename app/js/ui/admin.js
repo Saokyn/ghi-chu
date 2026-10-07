@@ -1,4 +1,5 @@
 // Quản trị: Tùy chỉnh giao diện (tên app, logo, màu, phông, bố cục, chủ đề, bo góc, mật độ + xem trước trực tiếp)
+import { annAdminPage } from './announce.js';
 // và danh sách người dùng. Lưu vào app_settings (mọi người đọc được, chỉ admin ghi được).
 import { esc, toast, prepareImage, initials } from '../util.js';
 import { icon } from '../icons.js';
@@ -16,6 +17,7 @@ export function renderAdmin(el, app, tab) {
   if (app.user.role !== 'admin') { el.innerHTML = `<div class="empty"><div class="ei">${icon('lock', 28)}</div><b>Chỉ quản trị viên mới xem được trang này</b></div>`; return; }
   if (tab === 'nguoi-dung') return usersPage(el, app);
   if (tab === 'ai-dung-chung') return sharedAiPage(el, app);
+  if (tab === 'thong-bao') return annAdminPage(el, app);
   return themePage(el, app);
 }
 

@@ -30,7 +30,7 @@ function viError(error, fallback = 'Lỗi máy chủ') {
 }
 const must = ({ data, error }) => { if (error) throw viError(error); return data; };
 
-export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy' } = {}) {
+export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunction = 'send-reminders' } = {}) {
   let user = null, prefsCache = null;
   const authL = new Set();
   const emit = ev => authL.forEach(cb => cb(ev, user));
@@ -242,6 +242,40 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy' } = {}) {
       async save(cfg) { return must(await sb.rpc('admin_set_shared_ai', { cfg })); },
       async fromMine(provider, model) { return must(await sb.rpc('admin_shared_ai_from_mine', { p_provider: provider, p_model: model || null })); },
       async setAllowCustom(id, allow) { must(await sb.rpc('admin_set_allow_custom_ai', { target: id, allow: !!allow })); },
+    },
+    reminders: {
+      async list() { need(); return must(await sb.from('reminders').select('*').order('next_at', { ascending: true, nullsFirst: false }).limit(2000)); },
+      async create(f) { need(); return must(await sb.from('reminders').insert(Object.assign({}, f, { user_id: user.id })).select('*').single()); },
+      async update(id, patch) { need(); const p = Object.assign({}, patch); delete p.id; delete p.user_id; return must(await sb.from('reminders').update(p).eq('id', id).select('*').single()); },
+      async remove(id) { need(); must(await sb.from('reminders').delete().eq('id', id)); },
+      // Edge Function đổi next_at khi gửi nhắc lặp → báo cho app tải lại.
+      subscribe(cb) {
+        need(); const ch = sb.channel('reminders:' + user.id).on('postgres_changes', { event: '*', schema: 'public', table: 'reminders', filter: `user_id=eq.${user.id}` }, () => cb()).subscribe();
+        return () => sb.removeChannel(ch);
+      },
+    },
+    announcements: {
+      async list() { need(); return must(await sb.from('announcements').select('*').order('starts_at', { ascending: false }).limit(200)); },
+      async save(a) {
+        need(); const row = { title: a.title, content: a.content || '', level: a.level || 'normal', starts_at: a.starts_at, ends_at: a.ends_at || null };
+        return must(await (a.id ? sb.from('announcements').update(row).eq('id', a.id) : sb.from('announcements').insert(row)).select('*').single());
+      },
+      async remove(id) { need(); must(await sb.from('announcements').delete().eq('id', id)); },
+      subscribe(cb) { const ch = sb.channel('announcements').on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => cb()).subscribe(); return () => sb.removeChannel(ch); },
+    },
+    push: {
+      available: true,
+      async save(sub) {
+        need(); const j = sub.toJSON();
+        return must(await sb.rpc('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_ua: navigator.userAgent.slice(0, 300) }));
+      },
+      async remove(endpoint) { need(); must(await sb.from('push_subscriptions').delete().eq('endpoint', endpoint)); },
+      async count() { need(); const { count, error } = await sb.from('push_subscriptions').select('id', { count: 'exact', head: true }); if (error) throw viError(error); return count || 0; },
+      async test() {
+        const { data, error } = await sb.functions.invoke(pushFunction, { body: { action: 'test' } });
+        if (error) { let msg = error.message; try { const j = await error.context?.json?.(); msg = j?.error || msg; } catch {} throw new Error(msg); }
+        return data;
+      },
     },
     proxy: {
       available: true,
