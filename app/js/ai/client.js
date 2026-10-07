@@ -104,7 +104,7 @@ export function createAiClient(getData) {
   }
 
   /** Tóm tắt: dùng AI nếu đã cấu hình, nếu không thì tóm tắt trích ý ngay trên máy (không dùng AI). */
-  async function summarize(ai, { text, url, length = 'medium', lang = 'vi', forceLocal = false }) {
+  async function summarize(ai, { text, url, length = 'medium', lang = 'vi', forceLocal = false, onDelta }) {
     let source = text, pageTitle = '', site = '';
     if (url) {
       const page = await fetchUrl(url);
@@ -123,7 +123,7 @@ export function createAiClient(getData) {
     const langName = lang === 'en' ? 'English' : 'tiếng Việt';
     const sys = `Bạn là trợ lý giúp ghi nhớ. Đọc nội dung người dùng gửi và rút ra ${n} ý chính quan trọng nhất, mỗi ý một câu ngắn gọn, dễ nhớ, viết bằng ${langName}. Đặt một tiêu đề ngắn (tối đa 10 từ). Chỉ trả về JSON hợp lệ dạng {"title":"...","points":["...","..."]}, không thêm chữ nào khác.`;
     const clipped = source.slice(0, c.maxInput || 24000);
-    const out = await chat(ai, [{ role: 'system', content: sys }, { role: 'user', content: (pageTitle ? 'Tiêu đề trang: ' + pageTitle + '\n\n' : '') + clipped }], { maxTokens: 1200 });
+    const out = await chat(ai, [{ role: 'system', content: sys }, { role: 'user', content: (pageTitle ? 'Tiêu đề trang: ' + pageTitle + '\n\n' : '') + clipped }], { maxTokens: 1200, onDelta });
     const parsed = parseSummary(out);
     return { title: parsed.title || pageTitle, points: parsed.points.slice(0, 12), engine: 'ai', provider: c.name, model: c.model, site };
   }

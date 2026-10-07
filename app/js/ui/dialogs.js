@@ -233,7 +233,9 @@ export function openAiDialog(app, { text = '' } = {}) {
     try {
       const isUrl = isUrlOnly(raw);
       source = isUrl ? normalizeUrlInput(raw) : raw;
-      const r = await app.ai.summarize(ai, isUrl ? { url: source, length, lang: ai.options?.lang } : { text: raw, length, lang: ai.options?.lang });
+      const $res = el.querySelector('[data-res]'); let live = null;
+      const onDelta = (_p, all) => { if (!live) { $res.innerHTML = '<div class="pv-res"><div class="lbl">Đang nhận câu trả lời…</div><pre class="muted" data-live style="white-space:pre-wrap;max-height:240px;overflow:auto;font:inherit;margin:6px 0 0"></pre></div>'; live = $res.querySelector('[data-live]'); } live.textContent = all; live.scrollTop = live.scrollHeight; };
+      const r = await app.ai.summarize(ai, isUrl ? { url: source, length, lang: ai.options?.lang, onDelta } : { text: raw, length, lang: ai.options?.lang, onDelta });
       result = r;
       el.querySelector('[data-res]').innerHTML = `<div class="pv-res">
         <label class="field"><span class="lbl">Tiêu đề</span><input class="inp" data-rt value="${esc(r.title || '')}"></label>
