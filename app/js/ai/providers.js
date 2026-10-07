@@ -15,7 +15,7 @@ export const PROVIDERS = {
     name: 'Intern AI', short: 'Intern', logo: { bg: 'linear-gradient(135deg,#2563eb,#06b6d4)', text: 'In' },
     baseUrl: 'https://chat.intern-ai.org.cn/api/v1', model: 'intern-s2',
     models: ['intern-s2', 'intern-latest', 'intern-s1-pro', 'intern-s2-preview-35b', 'intern-s1', 'intern-s1-mini'],
-    needsProxy: true, stream: true, maxInput: 12000,
+    needsProxy: true, stream: true, maxInput: 12000, foldSystem: true, // intern-s2 treo (không trả header >45 s) khi có tin nhắn role system
     extraBody: model => (/^intern-s/.test(model) ? { thinking_mode: false } : {}),
     keyUrl: 'https://internlm.intern-ai.org.cn/api/tokens', keyHint: 'eyJ0… hoặc sk-…',
     keySteps: 'Mở internlm.intern-ai.org.cn → đăng ký / đăng nhập (tài khoản phải liên kết số điện thoại) → API Tokens (获取个人密钥) → đặt tên và tạo token → sao chép. Dán nguyên token, không thêm chữ “Bearer”.',
@@ -101,7 +101,7 @@ export function providerConf(ai, pid = ai.provider) {
   return {
     id: pid, name: P.name, short: P.short, apiKey: String(c.apiKey || '').trim(), baseUrl: base, accountId, accountMissing,
     model: String(c.model || P.model || '').trim(),
-    useProxy: c.useProxy ?? !!P.needsProxy, needsProxy: !!P.needsProxy, stream: !!P.stream, maxInput: P.maxInput,
+    useProxy: c.useProxy ?? !!P.needsProxy, needsProxy: !!P.needsProxy, stream: !!P.stream, maxInput: P.maxInput, foldSystem: !!P.foldSystem,
     headers: P.headers ? P.headers() : {}, extraBody: P.extraBody,
   };
 }

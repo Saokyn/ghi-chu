@@ -34,6 +34,10 @@ export function createAiClient(getData) {
 
   async function chat(ai, messages, { pid, maxTokens, signal, onDelta } = {}) {
     const c = providerConf(ai, pid); check(c);
+    if (c.foldSystem && messages.some(m => m.role === 'system')) { // gộp system vào tin nhắn user đầu tiên
+      const sys = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n'); const rest = messages.filter(m => m.role !== 'system');
+      const i = rest.findIndex(m => m.role === 'user'); messages = i < 0 ? [{ role: 'user', content: sys }, ...rest] : rest.map((m, k) => (k === i ? { ...m, content: sys + '\n\n' + m.content } : m));
+    }
     const body = { model: c.model, messages, stream: false, temperature: 0.3 };
     if (maxTokens) body.max_tokens = maxTokens;
     if (c.extraBody) Object.assign(body, c.extraBody(c.model, body));
