@@ -273,6 +273,14 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunc
       async fromTemplates() { need(); return must(await sb.rpc('create_template_folders')); },
       subscribe(cb) { need(); const ch = sb.channel('folders:' + user.id).on('postgres_changes', { event: '*', schema: 'public', table: 'folders', filter: `user_id=eq.${user.id}` }, () => cb()).subscribe(); return () => sb.removeChannel(ch); },
     },
+    // Lịch sử trò chuyện với trợ lý (RLS: chỉ của mình; máy chủ giữ tối đa 50 cuộc, ≤ 80 tin/cuộc, ≤ 200 KB)
+    chats: {
+      async list() { need(); return must(await sb.from('chat_conversations').select('id,title,created_at,updated_at').order('updated_at', { ascending: false }).limit(50)); },
+      async get(id) { need(); return must(await sb.from('chat_conversations').select('*').eq('id', id).maybeSingle()); },
+      async create(c) { need(); return must(await sb.from('chat_conversations').insert({ ...(c.id ? { id: c.id } : {}), user_id: user.id, title: c.title || 'Cuộc trò chuyện', messages: c.messages || [] }).select('id,title,created_at,updated_at').single()); },
+      async update(id, patch) { need(); const p = {}; if (patch.title != null) p.title = patch.title; if (patch.messages) p.messages = patch.messages; return must(await sb.from('chat_conversations').update(p).eq('id', id).select('id,title,created_at,updated_at').single()); },
+      async remove(id) { need(); must(await sb.from('chat_conversations').delete().eq('id', id)); },
+    },
     folderTemplates: {
       async list() { return must(await sb.from('folder_templates').select('*').order('sort')); },
       // Admin lưu cả danh sách: xoá mục bị bỏ, cập nhật/ thêm mục còn lại theo thứ tự
@@ -319,10 +327,10 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunc
         return data;
       },
       // Stream SSE qua proxy: trả về { status, data } như call(); onDelta(text) nhận từng đoạn chữ.
-      async stream(body, onDelta) {
+      async stream(body, onDelta, signal) {
         const { data: { session } } = await sb.auth.getSession();
         const base = String(sb.functionsUrl?.href || sb.functionsUrl || (sb.supabaseUrl + '/functions/v1')).replace(/\/+$/, '');
-        const res = await fetch(base + '/' + proxyFunction, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-region': 'ap-southeast-1', apikey: sb.supabaseKey, Authorization: 'Bearer ' + (session?.access_token || sb.supabaseKey) }, body: JSON.stringify(Object.assign({}, body, { stream: true })) });
+        const res = await fetch(base + '/' + proxyFunction, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-region': 'ap-southeast-1', apikey: sb.supabaseKey, Authorization: 'Bearer ' + (session?.access_token || sb.supabaseKey) }, body: JSON.stringify(Object.assign({}, body, { stream: true })), signal });
         if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
           let j = null; try { j = await res.json(); } catch {}
           if (!res.ok && !j?.status) throw new Error(j?.error || j?.message || ('HTTP ' + res.status));

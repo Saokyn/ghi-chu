@@ -97,6 +97,7 @@ export class Editor {
         <span class="dirty-pill" hidden>Chưa lưu</span>
         <label class="tg" title="Hiện thời gian lưu của từng dòng"><button class="sw ${lt ? 'on' : ''}" data-e="lt" role="switch" aria-checked="${lt}" aria-label="Hiện thời gian theo dòng"></button><span class="lbt">Hiện thời gian theo dòng</span></label>
         <div class="cpk"><button class="ib cbtn" data-e="color" aria-label="Chọn màu ghi chú" aria-haspopup="true" aria-expanded="false"><span class="cdot"></span></button><div class="cpop" hidden></div></div>
+        <button class="ib ed-ai" data-e="ai" title="Hỏi trợ lý AI về ghi chú này (tóm tắt, viết lại, sửa chính tả…)" aria-label="Trợ lý AI">${icon('sparkle', 17)}</button>
         <button class="ib" data-e="remind" title="Đặt nhắc việc" aria-label="Đặt nhắc việc">${icon('alarm', 17)}</button>
         <button class="ib" data-e="copy" title="Sao chép văn bản" aria-label="Sao chép">${icon('copy', 17)}</button>
         <button class="ib ${this.pinned ? 'on' : ''}" data-e="pin" title="Ghim" aria-label="Ghim">${icon('pin', 17)}</button>
@@ -221,6 +222,7 @@ export class Editor {
     const k = b.dataset.e;
     if (k === 'close') this.onRequestClose?.();
     else if (k === 'save') this.save();
+    else if (k === 'ai') this.app.openChat?.();
     else if (k === 'folder') {
       if (this.saved) openMovePicker(this.app, [this.saved.id]);
       else openMovePicker(this.app, [], { current: this.folderId, onPick: id => { this.folderId = id; this.renderFolder(); } });
@@ -324,6 +326,7 @@ export class Editor {
       this.renderMeta(); if (this.type !== 'text') this.renderTypeSection(); this.refreshState(); this.queueLines();
       if (wasDraft && this.mode === 'pane') { this.app.selectedId = note.id; this.app.renderList(); }
       if (wasDraft && !note.folder_id) suggestForNew(this.app, note, this.q('.fsug'));
+      if (wasDraft) this.app.chatNoteChanged?.();
       toast('Đã lưu · ' + formatDateTime(now));
     } catch (err) { toast('Không lưu được: ' + err.message, { kind: 'err', ms: 6000 }); }
     finally { this.saving = false; btn.disabled = false; }
@@ -337,6 +340,13 @@ export class Editor {
     this.q('.title-in').value = this.cur.title || ''; this.q('.ta').value = this.cur.content || '';
     this.q('[data-e=pin]').classList.toggle('on', this.pinned);
     this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.queueLines();
+  }
+  /** Áp dụng nội dung mới (đã được người dùng xem trước & xác nhận) rồi lưu như bình thường — giữ thời gian theo dòng. */
+  async applyContent(text) {
+    if (this.isDirty()) throw new Error('Ghi chú đang có thay đổi chưa lưu — hãy lưu hoặc huỷ trước.');
+    this.cur.content = text; const ta = this.q('.ta'); if (ta) ta.value = text;
+    this.queueLines(); this.refreshState();
+    await this.save();
   }
   /* ---------- thư mục & nhãn ---------- */
   renderFolder() {

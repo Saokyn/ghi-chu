@@ -10,6 +10,7 @@ import { clockHTML, startClock, openCalendar } from './ui/calendar.js';
 import { loadReminders, renderReminders, openReminderDialog, startReminderTicker, remindersCount, activeReminderOf, syncPushOnEnter, refreshPushState } from './ui/reminders.js';
 import { loadAnnouncements, renderBanner } from './ui/announce.js';
 import { setReminderLookup, setFolderLookup } from './ui/notes.js';
+import { mountChat, unmountChat, toggle as toggleChat, chatNoteChanged } from './ui/chat.js';
 import { loadFolders, folderNavHTML, folderBarHTML, openFolderDialog, createTemplateFolders, openFolderManager, openMovePicker, openAiSort } from './ui/folders.js';
 import { NONE, folderPath } from './folders.js';
 import { renderAuth, showRecovery } from './ui/auth.js';
@@ -138,6 +139,7 @@ function leave() {
   document.getElementById('ralerts')?.remove();
   app.entered = false; app.user = null; app.notes = []; app.selectedId = null;
   app.paneEditor?.destroy(); app.paneEditor = null; app.modalEditor = null;
+  unmountChat();
   $('#layer').innerHTML = '';
   showAuth();
 }
@@ -246,6 +248,7 @@ function renderShell() {
   renderBanner(app);
   startClock();
   showActiveChip();
+  mountChat(app); chatNoteChanged();
 }
 function showActiveChip() { const c = $('#mfbar .fchip.on'); if (c && isMobile()) { const bar = c.parentElement; bar.scrollLeft = c.offsetLeft - (bar.clientWidth - c.offsetWidth) / 2; } }
 app.renderShell = renderShell;
@@ -343,6 +346,7 @@ function mountPaneEditor() {
   if (!note) { pane.innerHTML = `<div class="ed-empty">${icon('notes', 40)}<p style="margin-top:10px">Chọn một ghi chú để xem và chỉnh sửa</p></div>`; return; }
   app.paneEditor = new Editor(app, note, { mode: 'pane' });
   app.paneEditor.mount(pane);
+  chatNoteChanged();
 }
 function visibleSorted() { const tmp = document.createElement('div'); tmp.innerHTML = twoPaneListHTML(app); return [...tmp.querySelectorAll('[data-open]')].map(e => app.notes.find(n => n.id === e.dataset.open)).filter(Boolean); }
 
@@ -362,6 +366,7 @@ app.openNote = async (noteOrDraft) => {
     app.paneEditor = new Editor(app, noteOrDraft, { mode: 'pane' });
     if (pane) app.paneEditor.mount(pane);
     if (noteOrDraft._draft) app.paneEditor.focusTitle();
+    chatNoteChanged();
     return;
   }
   if (app.route.name !== 'notes') app.navigate('#/');
@@ -371,13 +376,16 @@ app.openNote = async (noteOrDraft) => {
       if (!ed.isDirty()) return true;
       return confirmDialog('Ghi chú có thay đổi chưa lưu. Đóng và bỏ các thay đổi?', { okText: 'Bỏ thay đổi', danger: true });
     },
-    onClose: () => { ed.destroy(); if (app.modalEditor === ed) app.modalEditor = null; },
+    onClose: () => { ed.destroy(); if (app.modalEditor === ed) app.modalEditor = null; chatNoteChanged(); },
   });
   ed.onRequestClose = (force) => m.close(force);
   app.modalEditor = ed;
   ed.mount(m.el.querySelector('.dlg'));
   if (noteOrDraft._draft) ed.focusTitle(); else ed.focusContent();
+  chatNoteChanged();
 };
+app.openChat = () => toggleChat(true);
+app.chatNoteChanged = () => chatNoteChanged();
 /** Lọc ghi chú theo ngày tạo (YYYY-MM-DD giờ VN) hoặc bỏ lọc (null) */
 app.setDayFilter = (key) => {
   app.filter.day = key || null;

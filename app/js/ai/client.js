@@ -35,7 +35,8 @@ export function createAiClient(getData) {
     return r; // { status, data }
   }
 
-  async function chat(ai, messages, { pid, maxTokens, signal, onDelta, retried = false } = {}) {
+  // stream: true → nhận chữ dần qua onDelta(piece, full) (qua proxy hoặc gọi thẳng SSE); signal → dừng giữa chừng (AbortError).
+  async function chat(ai, messages, { pid, maxTokens, signal, onDelta, stream = false, retried = false } = {}) {
     const c = providerConf(ai, pid); check(c);
     if (c.foldSystem && messages.some(m => m.role === 'system')) { // gộp system vào tin nhắn user đầu tiên
       const sys = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n'); const rest = messages.filter(m => m.role !== 'system');
@@ -47,25 +48,46 @@ export function createAiClient(getData) {
     let status, j, raw;
     if (c.useProxy && canProxy()) {
       const px = data().proxy;
-      const r = c.stream && px.stream
-        ? await px.stream(Object.assign(proxyBase(c), { action: 'chat', body }), onDelta)
+      const r = (c.stream || stream) && px.stream
+        ? await px.stream(Object.assign(proxyBase(c), { action: 'chat', body }), onDelta, signal)
         : await viaProxy(c, { action: 'chat', body });
       status = r.status; j = r.data; raw = JSON.stringify(r.data);
     } else {
       let res;
+      if (stream && onDelta) body.stream = true;
       try {
         res = await fetch(chatUrl(c.baseUrl), { method: 'POST', signal, headers: Object.assign({ 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.apiKey }, c.headers), body: JSON.stringify(body) });
       } catch (e) {
         if (e.name === 'AbortError') throw e;
         throw new Error('Không gọi được API (' + e.message + '). Có thể bị chặn CORS: hãy bật “Gọi qua proxy (Supabase Edge Function)”.');
       }
-      status = res.status; raw = await res.text(); try { j = JSON.parse(raw); } catch { j = null; }
+      status = res.status;
+      if (res.ok && body.stream && (res.headers.get('content-type') || '').includes('text/event-stream') && res.body) { j = await readSse(res, onDelta); raw = JSON.stringify(j); }
+      else { raw = await res.text(); try { j = JSON.parse(raw); } catch { j = null; } }
     }
-    if (status === 504 && !retried && (c.stream || c.shared)) return chat(ai, messages, { pid, maxTokens, signal, onDelta, retried: true }); // Intern thỉnh thoảng treo: thử lại 1 lần
-    if (status < 200 || status >= 300) throw new Error(errText(status, j, raw, c));
+    if (status === 504 && !retried && (c.stream || c.shared)) return chat(ai, messages, { pid, maxTokens, signal, onDelta, stream, retried: true }); // Intern thỉnh thoảng treo: thử lại 1 lần
+    if (status < 200 || status >= 300 || (j?.error && !j?.choices)) throw new Error(errText(status >= 200 && status < 300 ? 502 : status, j, raw, c));
     const out = j?.choices?.[0]?.message?.content;
     if (out == null) throw new Error('Phản hồi không đúng định dạng OpenAI: ' + String(raw).slice(0, 300));
     return String(out);
+  }
+
+  // Đọc luồng SSE kiểu OpenAI → { choices: [{ message: { content } }] } (bỏ reasoning_content)
+  async function readSse(res, onDelta) {
+    const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '', text = '';
+    for (;;) {
+      const { value, done } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true }); let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue; const d = line.slice(5).trim(); if (d === '[DONE]') continue;
+        let x; try { x = JSON.parse(d); } catch { continue; }
+        if (x?.error) return { error: x.error };
+        const piece = x?.choices?.[0]?.delta?.content ?? x?.choices?.[0]?.message?.content;
+        if (piece) { text += piece; onDelta?.(piece, text); }
+      }
+    }
+    return { choices: [{ message: { content: text } }] };
   }
 
   async function listModels(ai, pid) {

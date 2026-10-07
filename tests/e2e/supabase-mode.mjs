@@ -13,6 +13,7 @@ const db = {
   notes: [{ id: 'aaaaaaaa-0000-0000-0000-000000000001', user_id: UID, type: 'text', title: 'Ghi chú trên Supabase', content: 'Dòng một\nDòng hai', image_path: null, url: null, link_meta: null, ai_source: null, pinned: false, line_times: [], created_at: '2026-10-05T01:00:00Z', updated_at: '2026-10-05T01:00:00Z' }],
   app_settings: [{ id: 1, app_name: 'Ghi Chú Supabase', primary_color: '#e11d48', dark_accent: '#2dd4bf', font: 'bvp', default_layout: 'grid', default_theme: 'light', radius: 14, density: 'comfortable', allow_user_theme: true, allow_signup: true }],
   user_ai_settings: [],
+  reminders: [], announcements: [], folders: [], folder_templates: [], chat_conversations: [], push_subscriptions: [],
 };
 const log = [];
 function filt(rows, url) {
@@ -32,6 +33,7 @@ async function handle(route) {
   }
   if (path === '/auth/v1/user') return J(200, user);
   if (path === '/auth/v1/logout') return J(204);
+  if (path.startsWith('/rest/v1/rpc/')) return J(200, null); // get_shared_ai, … → chưa bật
   const m = /^\/rest\/v1\/(\w+)$/.exec(path);
   if (m) {
     const t = m[1], rows = db[t]; if (!rows) return J(404, { message: 'no table ' + t });
@@ -58,12 +60,12 @@ async function handle(route) {
 }
 
 const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome' });
-const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: 'Asia/Ho_Chi_Minh' });
+const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: 'Asia/Ho_Chi_Minh', serviceWorkers: 'block' }); // SW (Pha 2) sẽ phục vụ config.js thật từ bộ nhớ đệm, vượt qua route giả
 const p = await ctx.newPage(); p.setDefaultTimeout(8000);
 const errs = []; p.on('pageerror', e => errs.push('pageerror ' + e.message)); p.on('console', m => { if (m.type() === 'error' && !/WebSocket|realtime|ERR_NAME|ERR_CONNECTION|status of 400/i.test(m.text())) errs.push('console ' + m.text().slice(0, 200)); });
 await ctx.route(SB + '/**', handle);
 await ctx.routeWebSocket?.(/demo-test\.supabase\.co/, ws => { /* không trả lời → realtime coi như mất kết nối */ });
-await p.route('**/config.js', r => r.fulfill({ contentType: 'text/javascript', body: `export const SUPABASE_URL='${SB}'; export const SUPABASE_ANON_KEY='sb_publishable_test_key'; export const AI_PROXY_FUNCTION='ai-proxy';` }));
+await p.route('**/config.js', r => r.fulfill({ contentType: 'text/javascript', body: `export const SUPABASE_URL='${SB}'; export const SUPABASE_ANON_KEY='sb_publishable_test_key'; export const AI_PROXY_FUNCTION='ai-proxy'; export const VAPID_PUBLIC_KEY=''; export const PUSH_FUNCTION='send-reminders';` }));
 let ok = true; const check = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) ok = false; };
 try {
   await p.goto(BASE); await p.waitForSelector('.auth');
@@ -129,5 +131,5 @@ try {
   check(true, 'đăng xuất');
 } catch (e) { ok = false; console.log('  ✗ LỖI', e.message); await p.screenshot({ path: '/tmp/sb-fail.png' }); }
 if (errs.length) { ok = false; console.log('Lỗi JS:\n - ' + errs.join('\n - ')); }
-console.log((ok ? '\nSupabase-mode (giả lập' : '\nSupabase-mode (giả lập') + (HAS_COLOR ? ', có cột color' : ', CHƯA có cột color') + (ok ? '): QUA' : '): CÓ LỖI')); if (!ok) console.log(log.slice(-15).join('\n'));
+console.log((ok ? '\nSupabase-mode (giả lập' : '\nSupabase-mode (giả lập') + (HAS_COLOR ? ', có cột color' : ', CHƯA có cột color') + (ok ? '): QUA' : '): CÓ LỖI')); if (!ok) console.log(log.slice(-(+process.env.LOGN || 15)).join('\n'));
 process.exitCode = ok ? 0 : 1; await b.close();

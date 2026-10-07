@@ -727,4 +727,47 @@ do $$ begin
   end if;
 end $$;
 
+-- =====================================================================
+-- Trợ lý AI (pha 4): lịch sử trò chuyện của từng người. Chạy lại nhiều lần được.
+-- Giới hạn lưu trữ: ≤ 80 tin nhắn, ≤ 200 KB mỗi cuộc; mỗi người giữ tối đa 50 cuộc (tự xoá cuộc cũ nhất).
+-- =====================================================================
+create table if not exists public.chat_conversations (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  title       text not null default 'Cuộc trò chuyện' check (char_length(btrim(title)) between 1 and 120),
+  messages    jsonb not null default '[]'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  constraint chat_messages_arr check (jsonb_typeof(messages) = 'array' and jsonb_array_length(messages) <= 80),
+  constraint chat_messages_size check (octet_length(messages::text) <= 200000)
+);
+create index if not exists chat_conv_user_idx on public.chat_conversations (user_id, updated_at desc);
+create or replace function public.chat_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' then new.user_id := old.user_id; new.created_at := old.created_at; end if;
+  new.updated_at := now();
+  new.title := left(btrim(new.title), 120);
+  if tg_op = 'INSERT' then
+    -- giữ tối đa 50 cuộc: xoá các cuộc cũ nhất (kể cả cuộc mới này là cuộc thứ 50)
+    delete from public.chat_conversations c where c.user_id = new.user_id and c.id in (
+      select id from public.chat_conversations where user_id = new.user_id order by updated_at desc offset 49);
+  end if;
+  return new;
+end $$;
+drop trigger if exists chat_guard on public.chat_conversations;
+create trigger chat_guard before insert or update on public.chat_conversations for each row execute function public.chat_guard();
+alter table public.chat_conversations enable row level security;
+drop policy if exists chat_select on public.chat_conversations;
+create policy chat_select on public.chat_conversations for select to authenticated using (user_id = auth.uid());
+drop policy if exists chat_insert on public.chat_conversations;
+create policy chat_insert on public.chat_conversations for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists chat_update on public.chat_conversations;
+create policy chat_update on public.chat_conversations for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists chat_delete on public.chat_conversations;
+create policy chat_delete on public.chat_conversations for delete to authenticated using (user_id = auth.uid());
+revoke all on public.chat_conversations from anon;
+grant select, insert, update, delete on public.chat_conversations to authenticated;
+grant all on public.chat_conversations to service_role;
+
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

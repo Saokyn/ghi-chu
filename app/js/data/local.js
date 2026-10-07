@@ -256,6 +256,23 @@ export function createLocalAdapter() {
       },
       subscribe() { return () => {}; },
     },
+    // Lịch sử trò chuyện với trợ lý (demo: lưu trên máy) — cùng giới hạn với Supabase: ≤ 80 tin/cuộc, giữ 50 cuộc mới nhất
+    chats: {
+      async list() { need(); return read('chats.' + user.id, []).map(({ messages, ...c }) => ({ ...c, count: (messages || []).length })).sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)); },
+      async get(id) { need(); return read('chats.' + user.id, []).find(c => c.id === id) || null; },
+      async create(c) {
+        need(); const all = read('chats.' + user.id, []).sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, 49), t = nowIso();
+        if ((c.messages || []).length > 80) throw new Error('Cuộc trò chuyện quá dài.');
+        const row = { id: c.id || uuid(), user_id: user.id, title: String(c.title || 'Cuộc trò chuyện').trim().slice(0, 120) || 'Cuộc trò chuyện', messages: c.messages || [], created_at: t, updated_at: t };
+        write('chats.' + user.id, [row, ...all]); return row;
+      },
+      async update(id, patch) {
+        need(); const all = read('chats.' + user.id, []), i = all.findIndex(c => c.id === id); if (i < 0) throw new Error('Không tìm thấy cuộc trò chuyện.');
+        if ((patch.messages || []).length > 80) throw new Error('Cuộc trò chuyện quá dài.');
+        all[i] = Object.assign({}, all[i], patch, { id, user_id: user.id, updated_at: nowIso() }); write('chats.' + user.id, all); return all[i];
+      },
+      async remove(id) { need(); write('chats.' + user.id, read('chats.' + user.id, []).filter(c => c.id !== id)); },
+    },
     folderTemplates: {
       async list() { need(); return read('folder_templates', null) || DEFAULT_FOLDER_TEMPLATES.map((t, i) => Object.assign({ id: 'tpl' + i }, t)); },
       async save(list) {

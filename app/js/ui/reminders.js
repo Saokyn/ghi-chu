@@ -75,8 +75,9 @@ function nextLunarDate(ld, lm, from = Date.now()) {
   }
   return null;
 }
-export function openReminderDialog(app, { note = null, reminder = null } = {}) {
-  const r0 = reminder || {};
+/** draft: { title, at, basis, repeat } — điền sẵn (ví dụ trợ lý AI đề xuất), người dùng vẫn phải bấm Lưu */
+export function openReminderDialog(app, { note = null, reminder = null, draft = null } = {}) {
+  const r0 = reminder || draft || {};
   const now = Date.now();
   const start = r0.next_at ? Date.parse(r0.next_at) : r0.at ? Date.parse(r0.at) : (() => { const p = vnParts(now + 3600e3); return vnToMs(p.y, p.m, p.d, p.hh, 0); })();
   let st = { title: r0.title || '', basis: r0.basis || 'solar', repeat: r0.repeat || 'none', ms: start };
