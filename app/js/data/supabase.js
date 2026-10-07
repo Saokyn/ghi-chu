@@ -240,7 +240,7 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy' } = {}) {
       available: true,
       // Gọi Edge Function (supabase-js tự gắn JWT của người dùng).
       async call(body) {
-        const { data, error } = await sb.functions.invoke(proxyFunction, { body });
+        const { data, error } = await sb.functions.invoke(proxyFunction, { body, region: 'ap-southeast-1' }); // chạy ở Singapore: gần Việt Nam và Trung Quốc
         if (error) {
           let msg = error.message;
           try { const j = await error.context?.json?.(); msg = j?.error || msg; } catch {}
@@ -254,7 +254,7 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy' } = {}) {
       async stream(body, onDelta) {
         const { data: { session } } = await sb.auth.getSession();
         const base = String(sb.functionsUrl?.href || sb.functionsUrl || (sb.supabaseUrl + '/functions/v1')).replace(/\/+$/, '');
-        const res = await fetch(base + '/' + proxyFunction, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: sb.supabaseKey, Authorization: 'Bearer ' + (session?.access_token || sb.supabaseKey) }, body: JSON.stringify(Object.assign({}, body, { stream: true })) });
+        const res = await fetch(base + '/' + proxyFunction, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-region': 'ap-southeast-1', apikey: sb.supabaseKey, Authorization: 'Bearer ' + (session?.access_token || sb.supabaseKey) }, body: JSON.stringify(Object.assign({}, body, { stream: true })) });
         if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
           let j = null; try { j = await res.json(); } catch {}
           if (!res.ok && !j?.status) throw new Error(j?.error || j?.message || ('HTTP ' + res.status));

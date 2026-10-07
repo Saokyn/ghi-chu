@@ -66,9 +66,10 @@ export const PROVIDERS = {
   discovery: {
     // Intern Discovery (discovery.intern-ai.org.cn → 科研模型): OpenAI-style, /v1/models. KHÔNG có CORS (preflight 405) → cần proxy.
     name: 'Intern Discovery', short: 'Discovery', logo: { bg: 'linear-gradient(135deg,#7c3aed,#2563eb)', text: 'D' },
-    baseUrl: 'https://discovery-api.intern-ai.org.cn/v1', model: 'deepseek-v4-flash-0731',
-    models: ['deepseek-v4-flash-0731', 'deepseek-v4-pro-0813', 'glm-5.3', 'minimax-m3', 'kimi-k2.6', 'intern-s2', 'qwen3.8-27b'],
+    baseUrl: 'https://discovery-api.intern-ai.org.cn/v1', model: 'qwen3.8-27b',
+    models: ['qwen3.8-27b', 'glm-5.3', 'deepseek-v4-flash-0731', 'deepseek-v4-pro-0813', 'minimax-m3', 'kimi-k2.6', 'intern-s2'],
     needsProxy: true, stream: true, maxInput: 12000,
+    note: 'Intern Discovery không cho gọi thẳng từ trình duyệt nên app gọi qua proxy. Gợi ý: qwen3.8-27b nhanh và chính xác (≈5 s đã thấy chữ); glm-5.3 kỹ hơn nhưng chậm (≈10 s). deepseek-v4-flash, kimi-k2.6 suy nghĩ lâu trước khi trả lời.',
     keyUrl: 'https://discovery.intern-ai.org.cn', keyHint: 'sk-…',
     keySteps: 'Đăng nhập discovery.intern-ai.org.cn → mục Mô hình nghiên cứu (科研模型) → tạo / sao chép API key. Lưu ý: key ở “Cài đặt hệ thống → API Key” dành cho công cụ SCP, có thể không dùng để chat.',
   },

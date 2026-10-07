@@ -32,7 +32,7 @@ export function createAiClient(getData) {
     return r; // { status, data }
   }
 
-  async function chat(ai, messages, { pid, maxTokens, signal, onDelta } = {}) {
+  async function chat(ai, messages, { pid, maxTokens, signal, onDelta, retried = false } = {}) {
     const c = providerConf(ai, pid); check(c);
     if (c.foldSystem && messages.some(m => m.role === 'system')) { // gộp system vào tin nhắn user đầu tiên
       const sys = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n'); const rest = messages.filter(m => m.role !== 'system');
@@ -58,6 +58,7 @@ export function createAiClient(getData) {
       }
       status = res.status; raw = await res.text(); try { j = JSON.parse(raw); } catch { j = null; }
     }
+    if (status === 504 && !retried && c.stream) return chat(ai, messages, { pid, maxTokens, signal, onDelta, retried: true }); // Intern thỉnh thoảng treo: thử lại 1 lần
     if (status < 200 || status >= 300) throw new Error(errText(status, j, raw, c));
     const out = j?.choices?.[0]?.message?.content;
     if (out == null) throw new Error('Phản hồi không đúng định dạng OpenAI: ' + String(raw).slice(0, 300));
@@ -135,8 +136,17 @@ export function createAiClient(getData) {
   return { chat, listModels, test, fetchUrl, summarize, canProxy };
 }
 
+// Bỏ phần suy nghĩ model chèn vào nội dung (<think>…</think>, <mm:think>…</mm:think>)
+export function stripThink(out) { return String(out || '').replace(/<(mm:)?think>[\s\S]*?(<\/(mm:)?think>|$)/gi, '').trim(); }
+// Đọc JSON đang stream dở: lấy tiêu đề và các ý (kể cả ý đang viết dở)
+export function partialSummary(out) {
+  const s = stripThink(out); const un = x => x.replace(/\\(["\\/])/g, '$1').replace(/\\n/g, ' ').replace(/\\(u[0-9a-f]{0,4})?$/i, '');
+  const t = s.match(/"title"\s*:\s*"((?:[^"\\]|\\.)*)/); const a = s.match(/"(?:points|key_points)"\s*:\s*\[([\s\S]*)/);
+  const points = a ? [...a[1].matchAll(/"((?:[^"\\]|\\.)*)("?)/g)].map(m => un(m[1]).trim()).filter(Boolean) : [];
+  return { title: t ? un(t[1]) : '', points };
+}
 export function parseSummary(out) {
-  let s = String(out || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  let s = stripThink(out).replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
   const m = s.match(/\{[\s\S]*\}/);
   if (m) {
     try {

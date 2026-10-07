@@ -20,7 +20,7 @@ const ALLOWED = (Deno.env.get('ALLOWED_ORIGINS') ?? Deno.env.get('ALLOWED_ORIGIN
   .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 const originOk = (o: string | null) => !o || ALLOWED.includes('*') || ALLOWED.includes(o);
 const CORS: Record<string, string> = {
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-region',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
 };
@@ -29,7 +29,7 @@ const json = (obj: unknown, status = 200) =>
 
 const TIMEOUT_MS = 60_000;          // gọi AI
 const FETCH_TIMEOUT_MS = 15_000;
-const STREAM_TIMEOUT_MS = 45_000;     // stream AI: chờ tối đa 45 s tới khi nhà cung cấp bắt đầu trả lời (tránh treo im lặng); luồng sau đó chạy tới giới hạn của Edge Function    // đọc trang web
+const STREAM_TIMEOUT_MS = 25_000;     // stream AI: chờ tối đa 25 s tới khi nhà cung cấp bắt đầu trả lời (tránh treo im lặng); luồng sau đó chạy tới giới hạn của Edge Function    // đọc trang web
 const MAX_PAGE_BYTES = 3_000_000;   // tối đa 3 MB HTML
 const MAX_BODY_BYTES = 400_000;     // body gửi lên tối đa ~400 KB
 const MAX_TEXT = 30_000;

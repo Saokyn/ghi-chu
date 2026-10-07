@@ -1,3 +1,4 @@
+import { partialSummary } from '../ai/client.js';
 // Hộp thoại: menu "Thêm mới", tạo ghi chú Ảnh / Link / AI tóm tắt, xác nhận, ngăn xếp cửa sổ.
 import { $, esc, toast, nowIso, imageFromPaste, prepareImage, normalizeUrlInput, domainOf, isUrlOnly } from '../util.js';
 import { icon } from '../icons.js';
@@ -234,7 +235,11 @@ export function openAiDialog(app, { text = '' } = {}) {
       const isUrl = isUrlOnly(raw);
       source = isUrl ? normalizeUrlInput(raw) : raw;
       const $res = el.querySelector('[data-res]'); let live = null;
-      const onDelta = (_p, all) => { if (!live) { $res.innerHTML = '<div class="pv-res"><div class="lbl">Đang nhận câu trả lời…</div><pre class="muted" data-live style="white-space:pre-wrap;max-height:240px;overflow:auto;font:inherit;margin:6px 0 0"></pre></div>'; live = $res.querySelector('[data-live]'); } live.textContent = all; live.scrollTop = live.scrollHeight; };
+      const onDelta = (_p, all) => {
+        if (!live) { $res.innerHTML = '<div class="pv-res" data-live><div class="lbl"><span class="spin" style="width:12px;height:12px"></span> Đang viết…</div><div data-lt style="font-weight:650;margin:8px 0 4px"></div><ul data-lp style="margin:0;padding-left:20px;line-height:1.55"></ul></div>'; live = $res.querySelector('[data-live]'); }
+        const ps = partialSummary(all); live.querySelector('[data-lt]').textContent = ps.title;
+        live.querySelector('[data-lp]').innerHTML = ps.points.map(x => '<li>' + esc(x) + '</li>').join('');
+      };
       const r = await app.ai.summarize(ai, isUrl ? { url: source, length, lang: ai.options?.lang, onDelta } : { text: raw, length, lang: ai.options?.lang, onDelta });
       result = r;
       el.querySelector('[data-res]').innerHTML = `<div class="pv-res">
