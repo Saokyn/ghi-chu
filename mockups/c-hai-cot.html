@@ -1,0 +1,138 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Phương án C – Hai cột tối</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+:root{--bg:#0d0f14;--p1:#12151c;--p2:#171b24;--line:#232836;--ink:#e7e9ee;--ink2:#a3a9b8;--ink3:#6b7285;--acc:#2dd4bf;--acc2:rgba(45,212,191,.12)}
+body{font-family:InterL,BVP,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+.app{display:grid;grid-template-columns:64px 344px 1fr;height:100vh}
+.rail{background:#0a0c10;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px}
+.logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#2dd4bf,#0ea5e9);display:grid;place-items:center;color:#06221f;margin-bottom:14px}
+.ri{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;color:var(--ink3);position:relative}
+.ri.on{background:var(--acc2);color:var(--acc)}
+.ri.on:before{content:"";position:absolute;left:-11px;top:10px;bottom:10px;width:3px;border-radius:2px;background:var(--acc)}
+.rail .sp{flex:1}
+.av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;font-weight:700;font-size:12.5px;display:grid;place-items:center}
+.lp{background:var(--p1);border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.lh{display:flex;align-items:center;justify-content:space-between;padding:18px 18px 12px}
+.lh h2{font-size:18px;font-weight:700;letter-spacing:-.2px}.lh small{color:var(--ink3);font-size:12px;font-weight:500;margin-left:6px}
+.addb{display:flex;align-items:center;gap:6px;background:var(--acc);color:#04201c;font-weight:700;border-radius:9px;height:34px;padding:0 12px 0 9px;font-size:13px}
+.search{margin:0 18px;height:38px;border-radius:10px;background:var(--p2);border:1px solid var(--line);display:flex;align-items:center;gap:9px;padding:0 11px;color:var(--ink3);font-size:13.5px}
+.search .k{margin-left:auto;font-size:11px;border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.tabs{display:flex;gap:4px;padding:12px 18px 6px}
+.tabs span{font-size:12.5px;font-weight:600;color:var(--ink3);padding:5px 10px;border-radius:7px}.tabs .on{background:var(--p2);color:var(--ink)}
+.gl{font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:.8px;text-transform:uppercase;padding:12px 18px 6px;display:flex;align-items:center;gap:6px}
+.it{display:flex;gap:11px;padding:11px 14px;margin:2px 8px;border-radius:11px;position:relative}
+.it.on{background:#1b2130;box-shadow:inset 0 0 0 1px #2a3346}
+.it .ti{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none;margin-top:1px}
+.c-t{background:rgba(129,140,248,.14);color:#a5b4fc}.c-i{background:rgba(244,114,182,.14);color:#f9a8d4}.c-l{background:rgba(56,189,248,.14);color:#7dd3fc}.c-a{background:rgba(251,191,36,.14);color:#fcd34d}
+.it .bd{flex:1;min-width:0;padding-right:14px}
+.it b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it p{font-size:12.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.it .tm{font-size:11px;color:var(--ink3);margin-top:4px;display:flex;gap:8px}
+.it .pn{position:absolute;right:12px;top:12px;color:var(--acc)}
+.ed{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.eb{height:58px;display:flex;align-items:center;gap:8px;padding:0 22px;border-bottom:1px solid var(--line)}
+.crumb{display:flex;white-space:nowrap;min-width:0;overflow:hidden;align-items:center;gap:7px;color:var(--ink3);font-size:13px}.crumb b{color:var(--ink2);font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.eb .sp{flex:1}
+.tg{white-space:nowrap;flex:none;display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink);font-weight:600;background:var(--acc2);border:1px solid rgba(45,212,191,.35);padding:6px 10px 6px 8px;border-radius:9px}
+.sw{width:32px;height:18px;border-radius:999px;background:var(--acc);position:relative}.sw:after{content:"";position:absolute;right:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#04201c}
+.ib{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--ink2)}
+.save{white-space:nowrap;flex:none;display:flex;align-items:center;gap:7px;background:var(--acc);color:#04201c;font-weight:700;border-radius:9px;height:34px;padding:0 12px;font-size:13px}
+.save .k{font-size:10.5px;background:rgba(0,0,0,.15);border-radius:5px;padding:1px 5px;font-weight:600}
+.tb{display:flex;align-items:center;gap:2px;padding:8px 22px;border-bottom:1px solid var(--line)}
+.tb .ib{width:30px;height:30px;color:var(--ink3)}.tb .dv{width:1px;height:18px;background:var(--line);margin:0 6px}
+.doc{padding:26px 40px 0 22px;flex:1;overflow:hidden}
+.meta{display:flex;gap:16px;margin-left:110px;color:var(--ink3);font-size:12px;margin-bottom:10px}
+.meta span{display:flex;align-items:center;gap:5px}.meta b{color:var(--ink2);font-weight:600}
+h1{font-size:28px;font-weight:700;letter-spacing:-.5px;margin:0 0 18px 110px}
+.ln{display:grid;grid-template-columns:96px 14px 1fr;align-items:baseline;min-height:30px;position:relative}
+.ln .ts{font-family:MonoL,monospace;font-size:11.5px;color:#5c6478;text-align:right;padding-right:10px;letter-spacing:-.2px}
+.ln .gt{align-self:stretch;position:relative}
+.ln .gt:after{content:"";position:absolute;left:5px;top:5px;bottom:5px;width:2px;border-radius:2px;background:#2a3040}
+.ln.r2 .gt:after{background:rgba(45,212,191,.55)}
+.ln.un .gt:after{background:#f59e0b}
+.ln .tx{font-size:15.5px;line-height:30px;color:#d9dce4}
+.ln .tx b{color:#fff;font-weight:600}
+.ln.h .tx{font-weight:700;font-size:16.5px;color:#fff}
+.ln.un .tx{color:#f3f4f6}
+.ln.r2 .ts{color:#7fd8cb}
+.ln.cur .tx:after{content:"";display:inline-block;width:2px;height:19px;background:var(--acc);vertical-align:-4px;margin-left:1px}
+.ln.blank{min-height:14px}
+.chk{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:4px;border:1.5px solid #4b5366;vertical-align:-2px;margin-right:8px}
+.chk.d{background:var(--acc);border-color:var(--acc);color:#04201c}
+.tip{position:absolute;left:470px;top:-6px;line-height:1.45;background:#f3f4f6;color:#111;font-size:12px;border-radius:8px;padding:7px 10px;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:2}
+.tip b{font-weight:700}.tip:after{content:"";position:absolute;left:-5px;top:14px;width:10px;height:10px;background:#f3f4f6;transform:rotate(45deg)}
+.unl{font-size:10.5px;font-weight:700;color:#f59e0b;text-align:right;padding-right:10px;letter-spacing:.2px;text-transform:uppercase}
+.sb{height:36px;border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 22px;font-size:12px;color:var(--ink3)}
+.sb .w{display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%}
+.legend{margin-left:auto;display:flex;gap:14px}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:3px;height:12px;border-radius:2px;display:inline-block}
+</style></head><body>
+<div class="app">
+<nav class="rail">
+  <div class="logo"><i data-i="notes" data-s="19" data-w="2.3"></i></div>
+  <div class="ri on"><i data-i="notes" data-s="20"></i></div>
+  <div class="ri"><i data-i="pin" data-s="20"></i></div>
+  <div class="ri"><i data-i="ai" data-s="20"></i></div>
+  <div class="ri"><i data-i="trash" data-s="20"></i></div>
+  <div class="sp"></div>
+  <div class="ri"><i data-i="cloud" data-s="20"></i></div>
+  <div class="ri"><i data-i="settings" data-s="20"></i></div>
+  <div class="av">AK</div>
+</nav>
+<section class="lp">
+  <div class="lh"><h2>Ghi chú<small>48</small></h2><div class="addb"><i data-i="plus" data-s="16" data-w="2.6"></i>Thêm mới</div></div>
+  <div class="search"><i data-i="search" data-s="16"></i>Tìm ghi chú…<span class="k">Ctrl K</span></div>
+  <div class="tabs"><span class="on">Tất cả</span><span>Văn bản</span><span>Ảnh</span><span>Link</span><span>AI</span></div>
+  <div class="gl"><i data-i="pin" data-s="12" data-w="2.4"></i>Đã ghim</div>
+  <div class="it on"><div class="ti c-t"><i data-i="text" data-s="15"></i></div><div class="bd"><b>Họp khách hàng – Nhà sách Phương Nam</b><p>Chốt phạm vi giai đoạn 1: đăng nhập, ghi chú…</p><div class="tm"><span>Tạo 21:05 06/10</span><span>Sửa 21:30 06/10</span></div></div><span class="pn"><i data-i="pin" data-s="13" data-w="2.4"></i></span></div>
+  <div class="it"><div class="ti c-a"><i data-i="ai" data-s="15"></i></div><div class="bd"><b>Thị trường căn hộ TP.HCM quý III</b><p>① Nguồn cung mới tăng 18% ② Giá đi ngang…</p><div class="tm"><span>Tạo 14:47 04/10</span><span>Sửa 14:52 04/10</span></div></div><span class="pn"><i data-i="pin" data-s="13" data-w="2.4"></i></span></div>
+  <div class="gl">Gần đây</div>
+  <div class="it"><div class="ti c-t"><i data-i="text" data-s="15"></i></div><div class="bd"><b>Ý tưởng quà Trung thu cho khách hàng</b><p>Hộp bánh dẻo trà xanh + thiệp viết tay…</p><div class="tm"><span>Tạo 20:58 06/10</span><span>Sửa 21:24 06/10</span></div></div></div>
+  <div class="it"><div class="ti c-i"><i data-i="image" data-s="15"></i></div><div class="bd"><b>Bảng trắng – họp sprint 14</b><p>1 ảnh · dán từ clipboard</p><div class="tm"><span>Tạo 16:20 06/10</span><span>Sửa 16:20 06/10</span></div></div></div>
+  <div class="it"><div class="ti c-l"><i data-i="link" data-s="15"></i></div><div class="bd"><b>Cách nấu phở bò Hà Nội chuẩn vị</b><p>youtube.com · 18:42</p><div class="tm"><span>Tạo 11:05 06/10</span><span>Sửa 11:07 06/10</span></div></div></div>
+  <div class="it"><div class="ti c-a"><i data-i="ai" data-s="15"></i></div><div class="bd"><b>7 thói quen giúp ngủ ngon hơn</b><p>Đi ngủ cùng giờ · Tắt màn hình 60 phút…</p><div class="tm"><span>Tạo 22:41 05/10</span><span>Sửa 22:41 05/10</span></div></div></div>
+  <div class="it"><div class="ti c-t"><i data-i="text" data-s="15"></i></div><div class="bd"><b>Chỉ số huyết áp của bố</b><p>Sáng 118/76 · Tối 124/80</p><div class="tm"><span>Tạo 07:02 01/10</span><span>Sửa 19:15 05/10</span></div></div></div>
+</section>
+<section class="ed">
+  <div class="eb">
+    <div class="crumb"><i data-i="text" data-s="15"></i>Văn bản<i data-i="right" data-s="13"></i><b>Họp khách hàng – Phương Nam</b></div>
+    <div class="sp"></div>
+    <div class="tg"><span class="sw"></span>Hiện thời gian theo dòng</div>
+    <div class="ib"><i data-i="copy" data-s="17"></i></div>
+    <div class="ib" style="color:var(--acc)"><i data-i="pin" data-s="17"></i></div>
+    <div class="ib"><i data-i="trash" data-s="17"></i></div>
+    <div class="save"><i data-i="save" data-s="15"></i>Lưu<span class="k">Ctrl S</span></div>
+  </div>
+  <div class="tb">
+    <div class="ib"><i data-i="heading" data-s="16"></i></div><div class="ib"><i data-i="bold" data-s="16"></i></div><div class="ib"><i data-i="italic" data-s="16"></i></div><div class="ib"><i data-i="checks" data-s="16"></i></div><div class="dv"></div>
+    <div class="ib"><i data-i="image" data-s="16"></i></div><div class="ib"><i data-i="link" data-s="16"></i></div><div class="dv"></div>
+    <div class="ib" style="width:auto;padding:0 8px;gap:6px;display:flex;color:#fcd34d;font-size:12.5px;font-weight:600"><i data-i="ai" data-s="15"></i>AI tóm tắt ghi chú này</div>
+    <div style="flex:1"></div>
+    <div class="ib"><i data-i="history" data-s="16"></i></div>
+  </div>
+  <div class="doc">
+    <div class="meta"><span><i data-i="plus" data-s="13"></i>Tạo lúc <b>21:05 06/10/2026</b></span><span><i data-i="edit" data-s="13"></i>Cập nhật <b>21:30 06/10/2026</b></span><span><i data-i="history" data-s="13"></i>2 lần lưu</span></div>
+    <h1>Họp khách hàng – Nhà sách Phương Nam</h1>
+    <div class="ln h"><span class="ts">21:05 06/10</span><span class="gt"></span><span class="tx">Thành phần: anh Tuấn (PM), chị Linh (kế toán), mình</span></div>
+    <div class="ln"><span class="ts">21:05 06/10</span><span class="gt"></span><span class="tx"><span class="chk d"><i data-i="check" data-s="11" data-w="3.5"></i></span>Chốt phạm vi giai đoạn 1: đăng nhập email, ghi chú văn bản</span></div>
+    <div class="ln r2"><span class="tip"><span style="color:#555">Dòng này thay đổi ở lần lưu</span><br><b>21:30 · 06/10/2026</b> · trước đó: 40 triệu</span><span class="ts">21:30 06/10</span><span class="gt"></span><span class="tx"><span class="chk d"><i data-i="check" data-s="11" data-w="3.5"></i></span>Ngân sách: <b>45 triệu</b> (đã sửa từ 40 triệu)</span></div>
+    <div class="ln"><span class="ts">21:05 06/10</span><span class="gt"></span><span class="tx"><span class="chk"></span>Gửi báo giá chi tiết trước thứ Sáu 09/10</span></div>
+    <div class="ln r2"><span class="ts">21:30 06/10</span><span class="gt"></span><span class="tx"><span class="chk"></span>Khách muốn thêm tính năng dán ảnh từ clipboard</span></div>
+    <div class="ln blank"><span class="ts"></span><span class="gt"></span><span class="tx"></span></div>
+    <div class="ln h r2"><span class="ts">21:30 06/10</span><span class="gt"></span><span class="tx">Việc tiếp theo</span></div>
+    <div class="ln r2"><span class="ts">21:30 06/10</span><span class="gt"></span><span class="tx">– Hẹn demo bản thử vào sáng thứ Hai, 10:00</span></div>
+    <div class="ln un"><span class="unl">chưa lưu</span><span class="gt"></span><span class="tx">– Nhờ chị Linh gửi mẫu hoá đơn VAT</span></div>
+    <div class="ln un cur"><span class="ts"></span><span class="gt"></span><span class="tx">– Hỏi lại về tên miền riêng</span></div>
+  </div>
+  <div class="sb">
+    <span class="w"><span class="dot" style="background:#f59e0b"></span>2 dòng chưa lưu</span>
+    <span class="w"><i data-i="cloud" data-s="14"></i>Đã đồng bộ lúc 21:30</span>
+    <span>142 từ</span>
+    <div class="legend"><span><i style="background:#2a3040"></i>Lưu 21:05</span><span><i style="background:rgba(45,212,191,.7)"></i>Lưu 21:30 (mới nhất)</span><span><i style="background:#f59e0b"></i>Chưa lưu</span></div>
+  </div>
+</section>
+</div>
+<script src="icons.js"></script>
+</body></html>

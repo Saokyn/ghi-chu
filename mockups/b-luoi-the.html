@@ -1,0 +1,178 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Phương án B – Lưới thẻ</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+:root{--ink:#1f2330;--ink2:#555b6e;--ink3:#8f95a8;--pri:#f97316}
+body{font-family:NunitoL,sans-serif;color:var(--ink);background:#fbf8f3;font-size:14.5px}
+header{height:70px;display:flex;align-items:center;gap:18px;padding:0 32px;background:#fff;border-bottom:1px solid #f0ebe3;position:sticky;top:0;z-index:3}
+.brand{display:flex;align-items:center;gap:10px;width:220px}
+.logo{width:38px;height:38px;border-radius:12px;background:conic-gradient(from 200deg,#f97316,#facc15,#22c55e,#06b6d4,#8b5cf6,#ec4899,#f97316);display:grid;place-items:center}
+.logo span{width:28px;height:28px;border-radius:9px;background:#fff;display:grid;place-items:center;color:#f97316}
+.brand b{font-size:21px;font-weight:900;letter-spacing:-.3px}
+.search{flex:1;max-width:640px;margin:0 auto;height:46px;border-radius:14px;background:#f4f1ec;display:flex;align-items:center;gap:12px;padding:0 16px;color:var(--ink3);font-weight:600}
+.hr{display:flex;align-items:center;gap:8px;width:220px;justify-content:flex-end}
+.ib{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--ink2)}
+.av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;font-weight:800;display:grid;place-items:center;font-size:14px;border:3px solid #fff;box-shadow:0 0 0 2px #fde7d3}
+.bar{display:flex;align-items:center;gap:8px;padding:22px 32px 4px}
+.chip{display:flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;background:#fff;border:1.5px solid #efe9e0;font-weight:700;font-size:13.5px;color:var(--ink2)}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip .c{width:10px;height:10px;border-radius:50%}
+.bar .sp{flex:1}
+.view{display:flex;gap:4px;background:#fff;border:1.5px solid #efe9e0;border-radius:12px;padding:3px}
+.view div{width:34px;height:30px;border-radius:9px;display:grid;place-items:center;color:var(--ink3)}.view .on{background:#fff2e6;color:#ea580c}
+.add{display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#fb923c,#f43f5e);color:#fff;border-radius:14px;height:42px;padding:0 18px 0 14px;font-weight:800;font-size:14.5px;box-shadow:0 8px 20px rgba(244,63,94,.3)}
+.sec{display:flex;align-items:center;gap:8px;font-weight:900;font-size:13px;color:var(--ink3);text-transform:uppercase;letter-spacing:1px;padding:18px 32px 10px}
+.grid{columns:4;column-gap:16px;padding:0 32px}
+.card{break-inside:avoid;margin-bottom:16px;border-radius:18px;background:#fff;border:1.5px solid rgba(0,0,0,.05);overflow:hidden;position:relative;box-shadow:0 2px 0 rgba(0,0,0,.02)}
+.card .in{padding:14px 16px 12px}
+.card h3{font-size:16px;font-weight:800;line-height:1.3;margin-bottom:6px;padding-right:26px}
+.card p{color:var(--ink2);line-height:1.5;font-size:14px}
+.card img{display:block;width:100%;object-fit:cover}
+.pin{position:absolute;top:12px;right:12px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.75);color:#ea580c}
+.foot{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--ink3);font-weight:700}
+.foot .t{display:flex;flex-direction:column;gap:1px;line-height:1.35}
+.foot .a{margin-left:auto;display:flex;gap:2px;opacity:.55}
+.foot .a span{width:28px;height:28px;border-radius:8px;display:grid;place-items:center}
+.card.hover{box-shadow:0 14px 34px rgba(31,35,48,.14);transform:translateY(-2px)}
+.card.hover .a{opacity:1}.card.hover .a span:first-child{background:#1f2330;color:#fff}
+.typ{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:999px;margin-bottom:8px}
+.y{background:#fff6c7}.y .typ{background:#fde68a;color:#854d0e}
+.g{background:#dcfce7}.g .typ{background:#bbf7d0;color:#166534}
+.p{background:#ffe4ec}.p .typ{background:#fecdd8;color:#9f1239}
+.b{background:#e0f2fe}.b .typ{background:#bae6fd;color:#075985}
+.v{background:#f3e8ff}
+.w .typ{background:#f1f5f9;color:#475569}
+.ck{display:flex;align-items:flex-start;gap:9px;margin:5px 0;color:var(--ink);font-size:14px;line-height:1.4}
+.ck i,.ck svg{margin-top:1px}
+.box{width:17px;height:17px;border-radius:5px;border:2px solid #caa94a;flex:none;margin-top:1px;display:grid;place-items:center}
+.box.d{background:#caa94a;color:#fff}.ck.d span{text-decoration:line-through;color:var(--ink3)}
+.ai{background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,#8b5cf6,#ec4899,#f97316) border-box;border:2px solid transparent}
+.ai .typ{background:linear-gradient(135deg,#ede9fe,#fce7f3);color:#6d28d9}
+.ai ol{list-style:none;counter-reset:k;margin-top:4px}
+.ai li{counter-increment:k;display:flex;gap:9px;margin:7px 0;line-height:1.45;font-size:13.8px;color:var(--ink)}
+.ai li:before{content:counter(k);flex:none;width:20px;height:20px;border-radius:50%;background:#f3e8ff;color:#7c3aed;font-weight:900;font-size:11.5px;display:grid;place-items:center;margin-top:1px}
+.src{display:flex;align-items:center;gap:8px;background:#faf7ff;border-radius:10px;padding:7px 9px;margin-top:8px;font-size:12px;color:var(--ink2);font-weight:700}
+.src .fav{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:#fff;font-size:10px;font-weight:900}
+.lk .dom{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink3);font-weight:800;margin-bottom:4px}
+.lk h3{font-size:15px}
+.dur{position:absolute;right:10px;top:150px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;font-weight:800;padding:2px 6px;border-radius:5px}
+.cap{position:absolute;left:10px;top:10px;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;display:flex;align-items:center;gap:5px}
+.fab{position:fixed;right:32px;bottom:28px;display:none}
+.mono{font-family:MonoL,monospace;font-size:13px;background:rgba(255,255,255,.6);padding:1px 5px;border-radius:5px}
+</style></head><body>
+<header>
+  <div class="brand"><div class="logo"><span><i data-i="notes" data-s="16" data-w="2.4"></i></span></div><b>Ghi Chú</b></div>
+  <div class="search"><i data-i="search" data-s="19"></i>Tìm kiếm ghi chú…</div>
+  <div class="hr"><div class="ib"><i data-i="cloud" data-s="20"></i></div><div class="ib"><i data-i="settings" data-s="20"></i></div><div class="av">AK</div></div>
+</header>
+<div class="bar">
+  <span class="chip on">Tất cả · 48</span>
+  <span class="chip"><span class="c" style="background:#facc15"></span>Văn bản</span>
+  <span class="chip"><span class="c" style="background:#ec4899"></span>Hình ảnh</span>
+  <span class="chip"><span class="c" style="background:#0ea5e9"></span>Đường link</span>
+  <span class="chip"><span class="c" style="background:linear-gradient(135deg,#8b5cf6,#f97316)"></span>AI tóm tắt</span>
+  <span class="sp"></span>
+  <div class="view"><div><i data-i="list" data-s="17"></i></div><div class="on"><i data-i="grid" data-s="17"></i></div></div>
+  <div class="add"><i data-i="plus" data-s="19" data-w="2.8"></i>Thêm mới</div>
+</div>
+
+<div class="sec"><i data-i="pin" data-s="15" data-w="2.4"></i>Đã ghim</div>
+<div class="grid">
+  <div class="card y"><div class="pin"><i data-i="pin" data-s="15" data-w="2.4"></i></div><div class="in">
+    <span class="typ"><i data-i="text" data-s="12" data-w="2.6"></i>Văn bản</span>
+    <h3>Việc cần làm tuần này</h3>
+    <div class="ck d"><span class="box d"><i data-i="check" data-s="11" data-w="4"></i></span><span>Gọi thợ sửa máy lạnh</span></div>
+    <div class="ck"><span class="box"></span><span>Nộp tờ khai thuế TNCN trước 15/10</span></div>
+    <div class="ck"><span class="box"></span><span>Mua quà sinh nhật mẹ 🎂</span></div>
+    <div class="ck"><span class="box"></span><span>Đặt bàn tối thứ Bảy, 6 người</span></div>
+    <div class="foot"><div class="t"><span>Tạo 08:12 05/10</span><span>Sửa 21:30 06/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="more" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card ai"><div class="pin" style="color:#7c3aed"><i data-i="pin" data-s="15" data-w="2.4"></i></div><div class="in">
+    <span class="typ"><i data-i="ai" data-s="12" data-w="2.4"></i>AI tóm tắt</span>
+    <h3>Thị trường căn hộ TP.HCM quý III/2026</h3>
+    <ol><li>Nguồn cung mới tăng 18% so với cùng kỳ, tập trung ở TP. Thủ Đức.</li><li>Giá sơ cấp đi ngang, bình quân 62 triệu/m².</li><li>Phân khúc dưới 3 tỷ vẫn khan hiếm, thanh khoản tốt nhất.</li></ol>
+    <div class="src"><span class="fav" style="background:#16a34a">C</span>cafef.vn · bài viết 2.400 chữ<i data-i="external" data-s="13" style="margin-left:auto"></i></div>
+    <div class="foot"><div class="t"><span>Tạo 14:47 04/10</span><span>Sửa 14:52 04/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="more" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card w"><div class="pin"><i data-i="pin" data-s="15" data-w="2.4"></i></div><img src="img/halong.svg" style="height:150px"><div class="in">
+    <span class="typ"><i data-i="image" data-s="12" data-w="2.6"></i>Hình ảnh</span>
+    <h3>Kế hoạch đi Hạ Long 20–22/10</h3>
+    <p>Du thuyền 2 ngày 1 đêm, đón ở Tuần Châu lúc 11:30. Mang áo khoác mỏng.</p>
+    <div class="foot"><div class="t"><span>Tạo 19:40 02/10</span><span>Sửa 09:15 06/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="more" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card b"><div class="pin"><i data-i="pin" data-s="15" data-w="2.4"></i></div><div class="in">
+    <span class="typ"><i data-i="text" data-s="12" data-w="2.6"></i>Văn bản</span>
+    <h3>Wifi &amp; mã cổng nhà</h3>
+    <p>Wifi: <span class="mono">NhaKasa_5G</span><br>Mật khẩu: <span class="mono">••••••••••</span><br>Mã cổng chung cư: <span class="mono">2468#</span></p>
+    <div class="foot"><div class="t"><span>Tạo 10:00 12/09</span><span>Sửa 10:03 12/09</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="more" data-s="15"></i></span></div></div>
+  </div></div>
+</div>
+
+<div class="sec">Khác</div>
+<div class="grid">
+  <div class="card w lk"><img src="img/pho.svg" style="height:150px"><span class="dur">18:42</span><div class="in">
+    <div class="dom"><i data-i="link" data-s="13" data-w="2.4"></i>youtube.com</div>
+    <h3>Cách nấu phở bò Hà Nội chuẩn vị – bí quyết nước dùng trong</h3>
+    <p style="font-size:13px">Ninh xương 8 tiếng, nướng quế, hồi, thảo quả trước khi thả vào nồi.</p>
+    <div class="foot"><div class="t"><span>Tạo 11:05 06/10</span><span>Sửa 11:07 06/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card g hover"><div class="in">
+    <span class="typ"><i data-i="text" data-s="12" data-w="2.6"></i>Văn bản</span>
+    <h3>Ý tưởng quà Trung thu cho khách hàng</h3>
+    <p>Hộp bánh dẻo trà xanh + thiệp viết tay. Ngân sách khoảng 350.000đ/hộp. Chốt danh sách 40 khách trước 10/10, nhờ chị Hạnh in thiệp.</p>
+    <div class="foot"><div class="t"><span>Tạo 20:58 06/10</span><span>Sửa 21:24 06/10</span></div><div class="a"><span title="Sao chép"><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span><span><i data-i="edit" data-s="15"></i></span><span><i data-i="trash" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card w"><img src="img/whiteboard.svg" style="height:178px"><span class="cap"><i data-i="clipboard" data-s="11" data-w="2.6"></i>Dán từ clipboard</span><div class="in">
+    <h3 style="margin-bottom:0">Bảng trắng – họp sprint 14</h3>
+    <div class="foot"><div class="t"><span>Tạo 16:20 06/10</span><span>Sửa 16:20 06/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card ai"><div class="in">
+    <span class="typ"><i data-i="ai" data-s="12" data-w="2.4"></i>AI tóm tắt</span>
+    <h3>7 thói quen giúp ngủ ngon hơn</h3>
+    <ol><li>Đi ngủ và thức dậy cùng một giờ, kể cả cuối tuần.</li><li>Tắt màn hình 60 phút trước khi ngủ.</li><li>Không uống cà phê sau 14:00.</li></ol>
+    <div class="src"><span class="fav" style="background:#9f1239">V</span>vnexpress.net/7-thoi-quen…<i data-i="external" data-s="13" style="margin-left:auto"></i></div>
+    <div class="foot"><div class="t"><span>Tạo 22:41 05/10</span><span>Sửa 22:41 05/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card p"><div class="in">
+    <span class="typ"><i data-i="text" data-s="12" data-w="2.6"></i>Văn bản</span>
+    <h3>Chỉ số huyết áp của bố</h3>
+    <p>Sáng 118/76 – mạch 72<br>Tối 124/80 – mạch 75<br>Nhắc bố uống thuốc 7:00 &amp; 19:00.</p>
+    <div class="foot"><div class="t"><span>Tạo 07:02 01/10</span><span>Sửa 19:15 05/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card w lk"><img src="img/supabase.svg" style="height:150px"><div class="in">
+    <div class="dom"><i data-i="link" data-s="13" data-w="2.4"></i>supabase.com</div>
+    <h3>Đăng nhập bằng email với Supabase Auth</h3>
+    <div class="foot"><div class="t"><span>Tạo 15:30 03/10</span><span>Sửa 15:30 03/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card w"><img src="img/receipt.svg" style="height:200px"><div class="in">
+    <span class="typ"><i data-i="image" data-s="12" data-w="2.6"></i>Hình ảnh</span>
+    <h3>Hoá đơn tiền điện tháng 9</h3>
+    <p>812.460đ · hạn thanh toán 15/10</p>
+    <div class="foot"><div class="t"><span>Tạo 18:02 03/10</span><span>Sửa 18:04 03/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card b"><div class="in">
+    <span class="typ"><i data-i="text" data-s="12" data-w="2.6"></i>Văn bản</span>
+    <h3>Từ vựng tiếng Anh cho bé An</h3>
+    <p>apple – quả táo<br>umbrella – cái ô<br>library – thư viện<br>Ôn lại thứ Ba &amp; thứ Năm.</p>
+    <div class="foot"><div class="t"><span>Tạo 20:10 29/09</span><span>Sửa 20:45 04/10</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+
+  <div class="card y"><div class="in">
+    <span class="typ"><i data-i="text" data-s="12" data-w="2.6"></i>Văn bản</span>
+    <h3>Câu hay trong sách</h3>
+    <p><i style="font-style:italic">“Đừng đợi cảm hứng. Hãy bắt đầu, cảm hứng sẽ tới khi bạn đang làm.”</i></p>
+    <div class="foot"><div class="t"><span>Tạo 23:05 28/09</span><span>Sửa 23:05 28/09</span></div><div class="a"><span><i data-i="copy" data-s="15"></i></span><span><i data-i="pin" data-s="15"></i></span></div></div>
+  </div></div>
+</div>
+<div style="height:24px"></div>
+<script src="icons.js"></script>
+</body></html>

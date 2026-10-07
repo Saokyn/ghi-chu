@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 420" preserveAspectRatio="xMidYMid slice">
+<rect width="600" height="420" fill="#d9d4cc"/><rect x="30" y="24" width="540" height="360" rx="8" fill="#f7f7f4" stroke="#9aa0a6" stroke-width="8"/>
+<text x="60" y="78" font-family="Nunito, sans-serif" font-size="30" font-weight="800" fill="#1f4fbf">Sprint 14</text>
+<path d="M60 92 h170" stroke="#1f4fbf" stroke-width="4"/>
+<g font-family="Nunito, sans-serif" font-size="17" font-weight="700" fill="#333">
+<rect x="60" y="120" width="120" height="96" fill="#ffe66d" transform="rotate(-3 120 168)"/><text x="72" y="150">Đăng nhập</text><text x="72" y="174">email</text>
+<rect x="200" y="122" width="120" height="96" fill="#9be7c4" transform="rotate(2 260 170)"/><text x="212" y="152">Ghim</text><text x="212" y="176">ghi chú</text>
+<rect x="340" y="118" width="120" height="96" fill="#ffb3c6" transform="rotate(-2 400 166)"/><text x="352" y="148">AI tóm tắt</text><text x="352" y="172">URL</text>
+<rect x="110" y="240" width="120" height="96" fill="#a5d8ff" transform="rotate(3 170 288)"/><text x="122" y="272">Đồng bộ</text><text x="122" y="296">Supabase</text>
+<rect x="270" y="244" width="120" height="96" fill="#ffd8a8" transform="rotate(-1 330 292)"/><text x="282" y="274">Dán ảnh</text><text x="282" y="298">Ctrl+V</text></g>
+<path d="M480 260 q40 -40 70 10" stroke="#e03131" stroke-width="4" fill="none"/><circle cx="505" cy="310" r="28" fill="none" stroke="#e03131" stroke-width="4"/>
+<rect x="40" y="384" width="520" height="14" fill="#8b8f94"/>
+</svg>

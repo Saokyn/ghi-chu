@@ -1,0 +1,102 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Trình soạn – thời gian theo dòng</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+:root{--pri:#4f46e5;--pri-50:#eef2ff;--ink:#111827;--ink2:#4b5563;--ink3:#9ca3af;--line:#eceef2;--bg:#f7f8fa}
+body{font-family:BVP,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;height:100vh;display:flex;flex-direction:column}
+.top{height:62px;display:flex;align-items:center;gap:10px;padding:0 28px;background:#fff;border-bottom:1px solid var(--line)}
+.back{display:flex;align-items:center;gap:6px;color:var(--ink2);font-weight:500;padding:7px 10px 7px 6px;border-radius:9px;background:#f3f4f6}
+.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:grid;place-items:center;color:#fff}
+.top .sp{flex:1}
+.saved{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;padding:5px 10px;border-radius:999px;font-weight:500}
+.saved .d{width:7px;height:7px;border-radius:50%;background:#f59e0b}
+.ib{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--ink2)}
+.btn{display:flex;align-items:center;gap:7px;border-radius:10px;height:38px;padding:0 14px;font-weight:600;font-size:13.5px;white-space:nowrap}
+.btn.pri{background:var(--pri);color:#fff;box-shadow:0 4px 12px rgba(79,70,229,.28)}
+.btn.pri .k{font-size:10.5px;background:rgba(255,255,255,.2);border-radius:5px;padding:1px 5px}
+.wrap{flex:1;display:grid;grid-template-columns:1fr 300px;gap:22px;padding:24px 28px;min-height:0}
+.paper{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 1px 3px rgba(16,24,40,.04);display:flex;flex-direction:column;overflow:hidden}
+.tb{display:flex;align-items:center;gap:2px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.tb .ib{width:32px;height:32px;color:var(--ink3)}.tb .dv{width:1px;height:18px;background:var(--line);margin:0 6px}
+.tgl{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--ink);background:var(--pri-50);padding:6px 12px 6px 8px;border-radius:10px;border:1px solid #c7d2fe;position:relative}
+.sw{width:36px;height:20px;border-radius:999px;background:var(--pri);position:relative}.sw:after{content:"";position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.doc{padding:28px 0 0 48px;flex:1}
+.meta{display:flex;gap:18px;color:var(--ink3);font-size:12.5px;margin-bottom:8px}
+.meta span{display:flex;align-items:center;gap:5px}.meta b{color:var(--ink2);font-weight:600}
+h1{font-size:28px;font-weight:700;letter-spacing:-.4px;margin-bottom:22px}
+.lines{border-top:1px dashed #eef0f4}
+.ln{display:grid;grid-template-columns:34px 1fr 190px;align-items:center;height:46px;border-bottom:1px dashed #eef0f4;position:relative}
+.ln .no{font-family:MonoL,monospace;font-size:12px;color:#c4c8d0}
+.ln .tx{font-size:17px;font-family:MonoL,monospace;color:var(--ink);letter-spacing:.3px}
+.ln .ts{justify-self:end;margin-right:24px;font-size:12px;color:#9ca3af;display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.ln .ts .c{width:6px;height:6px;border-radius:50%;background:#d1d5db}
+.ln.new .ts{color:var(--pri);font-weight:600}.ln.new .ts .c{background:var(--pri)}
+.ln.un{background:linear-gradient(90deg,#fffbeb,#fff 70%)}
+.ln.un:before{content:"";position:absolute;left:-48px;top:0;bottom:0;width:3px;background:#f59e0b}
+.ln.un .ts{color:#d97706;font-style:italic}
+.ln.cur .tx:after{content:"";display:inline-block;width:2px;height:20px;background:var(--pri);vertical-align:-4px;margin-left:2px}
+.ann{position:absolute;right:220px;font-size:12px;color:var(--ink2);background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:5px 9px;box-shadow:0 4px 14px rgba(16,24,40,.08);white-space:nowrap}
+.foot{display:flex;align-items:center;gap:16px;padding:12px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--ink3)}
+.foot span{display:flex;align-items:center;gap:6px}
+.side{display:flex;flex-direction:column;gap:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px}
+.card h3{font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:7px}
+.kv{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid #f3f4f6}.kv:last-child{border:0}
+.kv span{color:var(--ink3)}.kv b{font-weight:600}
+.tl{position:relative;padding-left:18px}
+.tl:before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:#eef0f4}
+.ev{position:relative;padding:0 0 14px}
+.ev:before{content:"";position:absolute;left:-17px;top:4px;width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid #c7cbd3}
+.ev.now:before{border-color:#f59e0b;background:#fef3c7}
+.ev.last:before{border-color:var(--pri);background:var(--pri)}
+.ev b{font-size:13px;font-weight:600;display:block}.ev small{font-size:12px;color:var(--ink3);display:block;margin-top:2px}
+.ev code{font-family:MonoL,monospace;font-size:11.5px;background:#f3f4f6;border-radius:4px;padding:0 4px;color:var(--ink2)}
+.hint{background:linear-gradient(135deg,#eef2ff,#faf5ff);border:1px solid #e0e7ff;border-radius:14px;padding:14px 16px;font-size:12.8px;color:#3730a3;line-height:1.55}
+.hint b{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:13px}
+</style></head><body>
+<div class="top">
+  <div class="back"><i data-i="left" data-s="17"></i>Tất cả ghi chú</div>
+  <div class="logo"><i data-i="notes" data-s="16"></i></div><b style="font-size:15px">Ghi Chú</b>
+  <div class="sp"></div>
+  <div class="saved"><span class="d"></span>Có 1 dòng chưa lưu</div>
+  <div class="ib"><i data-i="copy" data-s="18"></i></div>
+  <div class="ib" style="color:var(--pri)"><i data-i="pin" data-s="18"></i></div>
+  <div class="ib"><i data-i="trash" data-s="18"></i></div>
+  <div class="btn pri"><i data-i="save" data-s="16"></i>Lưu<span class="k">Ctrl S</span></div>
+</div>
+<div class="wrap">
+  <div class="paper">
+    <div class="tb">
+      <div class="ib"><i data-i="heading" data-s="16"></i></div><div class="ib"><i data-i="bold" data-s="16"></i></div><div class="ib"><i data-i="italic" data-s="16"></i></div><div class="ib"><i data-i="checks" data-s="16"></i></div><div class="dv"></div><div class="ib"><i data-i="image" data-s="16"></i></div><div class="ib"><i data-i="link" data-s="16"></i></div><div class="ib"><i data-i="undo" data-s="16"></i></div>
+      <div class="tgl"><span class="sw"></span>Hiện thời gian theo dòng</div>
+    </div>
+    <div class="doc">
+      <div class="meta"><span><i data-i="plus" data-s="13"></i>Tạo lúc <b>21:05 06/10/2026</b></span><span><i data-i="edit" data-s="13"></i>Cập nhật <b>21:30 06/10/2026</b></span></div>
+      <h1>Ghi chú nhanh</h1>
+      <div class="lines">
+        <div class="ln"><span class="no">1</span><span class="tx">123</span><span class="ts"><span class="c"></span>21:05 · 06/10</span></div>
+        <div class="ln new"><span class="no">2</span><span class="tx">456</span><span class="ts"><span class="c"></span>21:30 · 06/10</span></div>
+        <div class="ln un cur"><span class="no">3</span><span class="tx">789</span><span class="ts"></span><span class="ann">Dòng mới – chưa lưu nên chưa có thời gian</span></div>
+      </div>
+    </div>
+    <div class="foot"><span><i data-i="cloud" data-s="14"></i>Đã đồng bộ lúc 21:30 · Supabase</span><span>3 dòng · 9 ký tự</span><span style="margin-left:auto"><i data-i="help" data-s="14"></i>Thời gian ở lề phải = lần lưu gần nhất làm dòng đó thay đổi</span></div>
+  </div>
+  <div class="side">
+    <div class="card"><h3><i data-i="history" data-s="15"></i>Lịch sử lưu</h3>
+      <div class="tl">
+        <div class="ev now"><b>Đang soạn…</b><small>Thêm dòng 3 <code>789</code> · chưa lưu</small></div>
+        <div class="ev last"><b>21:30 · 06/10/2026</b><small>Thêm dòng 2 <code>456</code></small></div>
+        <div class="ev"><b>21:05 · 06/10/2026</b><small>Tạo ghi chú · dòng 1 <code>123</code></small></div>
+      </div>
+    </div>
+    <div class="card"><h3><i data-i="text" data-s="15"></i>Thông tin ghi chú</h3>
+      <div class="kv"><span>Loại</span><b>Văn bản</b></div>
+      <div class="kv"><span>Tạo lúc</span><b>21:05 06/10/2026</b></div>
+      <div class="kv"><span>Cập nhật</span><b>21:30 06/10/2026</b></div>
+      <div class="kv"><span>Số lần lưu</span><b>2</b></div>
+      <div class="kv"><span>Thiết bị</span><b>Laptop · iPhone</b></div>
+    </div>
+    <div class="hint"><b><i data-i="clock" data-s="15"></i>Thời gian theo dòng</b>Mỗi khi bấm Lưu, các dòng có thay đổi sẽ được gắn thời gian của lần lưu đó. Dòng không đổi giữ nguyên thời gian cũ; dòng chưa lưu không hiện thời gian.</div>
+  </div>
+</div>
+<script src="icons.js"></script>
+</body></html>

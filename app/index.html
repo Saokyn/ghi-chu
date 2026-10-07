@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ghi Chú</title>
+<meta name="description" content="Ghi Chú — Nghĩ là ghi, cần là thấy. Ghi văn bản, hình ảnh, đường link và AI tóm tắt — đồng bộ mọi thiết bị.">
+<meta name="theme-color" content="#4f46e5">
+<link rel="icon" id="favicon" type="image/svg+xml" href="img/logo/favicon.svg" data-default="img/logo/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="img/logo/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="img/logo/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/app.css">
+<script>
+  // Áp dụng chủ đề đã lưu ngay khi tải để tránh nháy màn hình.
+  try { var t = localStorage.getItem('ghichu.lastTheme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<div id="root"><div class="boot"><span><span class="spin"></span>&nbsp; Đang tải…</span></div></div>
+<div id="layer"></div>
+<noscript>Ứng dụng cần bật JavaScript.</noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

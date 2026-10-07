@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Phương án C "Sen giấy": bông sen ba cánh, cánh giữa là trang ghi chú -->
+  <defs><linearGradient id="gc" x1="6" y1="2" x2="60" y2="64" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#0f5f73"/></linearGradient></defs>
+  <rect width="64" height="64" rx="16" fill="url(#gc)"/>
+  <path d="M32 47C21 45 12.5 37 11.5 25.5 20.5 27.5 28.5 34 32 47z" fill="#fbcfe8"/>
+  <path d="M32 47C43 45 51.5 37 52.5 25.5 43.5 27.5 35.5 34 32 47z" fill="#fbcfe8"/>
+  <path d="M32 10.5C41.5 20 44 31 32 47 20 31 22.5 20 32 10.5z" fill="#fffaf0"/>
+  <path d="M27.5 27h9M28.5 33.5h7" stroke="#0d9488" stroke-width="3" stroke-linecap="round"/>
+  <path d="M17 54h30" stroke="#99f6e4" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,140 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Cài đặt API AI</title>
+<link rel="stylesheet" href="fonts.css"><link rel="stylesheet" href="a-shell.css">
+<style>
+main{overflow:visible}
+.content{padding:24px 32px 36px;overflow:visible}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:16px 0 20px}
+.tabs span{padding:10px 14px;font-weight:500;color:var(--ink2);display:flex;align-items:center;gap:7px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs .on{color:var(--pri);border-color:var(--pri);font-weight:600}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin-bottom:16px;box-shadow:0 1px 2px rgba(16,24,40,.03)}
+.ch{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
+.ch h3{font-size:15.5px;font-weight:700;display:flex;align-items:center;gap:9px}
+.num{width:24px;height:24px;border-radius:50%;background:var(--pri-50);color:var(--pri);font-size:12.5px;font-weight:700;display:grid;place-items:center}
+.ch p{color:var(--ink3);font-size:13px;margin:4px 0 0 33px}
+.pg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.pv{border:1.5px solid #e5e7eb;border-radius:13px;padding:14px;position:relative;background:#fff}
+.pv.sel{border-color:var(--pri);box-shadow:0 0 0 4px rgba(79,70,229,.1);background:#fcfcff}
+.pv .lg{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:15px;margin-bottom:10px}
+.pv b{font-size:14px;font-weight:600;display:block}.pv small{font-size:12px;color:var(--ink3);display:block;margin-top:2px}
+.pv .rd{position:absolute;top:14px;right:14px;width:18px;height:18px;border-radius:50%;border:2px solid #d1d5db}
+.pv.sel .rd{border:5px solid var(--pri)}
+.bdg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 8px;border-radius:999px;margin-top:10px}
+.ok{background:#ecfdf5;color:#047857}.warn{background:#fffbeb;color:#b45309}.mut{background:#f3f4f6;color:#6b7280}
+.callout{display:flex;gap:12px;background:#eff6ff;border:1px solid #dbeafe;border-radius:12px;padding:12px 14px;color:#1e3a8a;font-size:13px;line-height:1.55;margin-bottom:18px}
+.callout a{color:#1d4ed8;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.f{margin-bottom:16px}
+.lbl{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:7px}
+.lbl a{font-weight:600;color:var(--pri);text-decoration:none;display:flex;align-items:center;gap:5px;font-size:12.5px}
+.inp{height:42px;border:1px solid #d9dce3;border-radius:10px;display:flex;align-items:center;gap:10px;padding:0 12px;background:#fff;font-size:14px}
+.inp.ro{background:#f9fafb;color:var(--ink2)}
+.inp .mono{font-family:MonoL,monospace;font-size:13px;letter-spacing:.5px;flex:1}
+.inp .ia{color:var(--ink3);display:flex;gap:10px}
+.help{font-size:12px;color:var(--ink3);margin-top:6px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border-radius:10px;font-weight:600;font-size:13.5px;border:1px solid #d9dce3;background:#fff;white-space:nowrap}
+.btn.pri{background:var(--pri);color:#fff;border-color:var(--pri);box-shadow:0 4px 12px rgba(79,70,229,.25)}
+.res{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#047857;font-weight:600;background:#ecfdf5;border-radius:10px;padding:0 12px;height:40px}
+.res small{color:#059669;font-weight:500}
+.mrow{display:flex;gap:10px;align-items:flex-start}
+.sel-wrap{flex:1;position:relative}
+.dd{position:absolute;left:0;right:0;top:48px;background:#fff;border-radius:12px;box-shadow:0 18px 50px rgba(17,24,39,.18),0 0 0 1px rgba(17,24,39,.06);padding:6px;z-index:4}
+.dd .s{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:6px 8px 10px;margin-bottom:4px;color:var(--ink3);font-size:13px}
+.op{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-size:13.5px}
+.op .mono{font-family:MonoL,monospace;font-size:12.8px}
+.op small{margin-left:auto;font-size:11.5px;color:var(--ink3)}
+.op.on{background:var(--pri-50);color:var(--pri);font-weight:600}
+.op .tg{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;background:#dcfce7;color:#166534}
+.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start}
+.seg{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;margin-left:0}
+.seg div{flex:1;width:auto;height:34px;font-size:13px;font-weight:500;color:var(--ink2);border-radius:8px;display:grid;place-items:center}
+.sw{width:38px;height:22px;border-radius:999px;background:#d1d5db;position:relative;flex:none}.sw:after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.sw.on{background:var(--pri)}.sw.on:after{left:19px}
+.tr{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.tr b{font-size:13.5px;font-weight:600;display:block}.tr small{font-size:12px;color:var(--ink3)}
+.tr .sw{margin-left:auto}
+.test{background:#f9fafb;border:1px dashed #d9dce3;border-radius:12px;padding:14px;font-size:13px;color:var(--ink2);line-height:1.55}
+.test .q{font-family:MonoL,monospace;font-size:12px;color:var(--ink3);margin-bottom:6px}
+.savebar{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:4px}
+.savebar .ls{margin-right:auto;font-size:12.5px;color:var(--ink3);display:flex;align-items:center;gap:6px}
+</style></head><body>
+<div class="app">
+<aside>
+  <div class="brand"><div class="logo"><i data-i="notes" data-s="19"></i></div><div><b>Ghi Chú</b><small>Ghi nhanh · nhớ lâu</small></div></div>
+  <div class="nav"><i data-i="notes"></i>Tất cả ghi chú<span class="n">48</span></div>
+  <div class="nav"><i data-i="pin"></i>Đã ghim<span class="n">3</span></div>
+  <div class="sec">Loại ghi chú</div>
+  <div class="nav"><i data-i="text"></i>Văn bản<span class="n">27</span></div>
+  <div class="nav"><i data-i="image"></i>Hình ảnh<span class="n">9</span></div>
+  <div class="nav"><i data-i="link"></i>Đường link<span class="n">7</span></div>
+  <div class="nav"><i data-i="ai"></i>AI tóm tắt<span class="n">5</span></div>
+  <div class="sec">Khác</div>
+  <div class="nav"><i data-i="trash"></i>Thùng rác<span class="n">2</span></div>
+  <div class="nav on"><i data-i="settings"></i>Cài đặt</div>
+  <div class="side-foot">
+    <div class="sync"><i data-i="cloud" data-s="16"></i>Đã đồng bộ · 2 thiết bị</div>
+    <div class="me"><div class="av">AK</div><div><b>Amli Kasa</b><small>amli.kasa@gmail.com</small></div></div>
+  </div>
+</aside>
+<main>
+  <div class="content">
+    <h1>Cài đặt</h1>
+    <div class="tabs"><span><i data-i="user" data-s="16"></i>Tài khoản</span><span class="on"><i data-i="ai" data-s="16"></i>AI</span><span><i data-i="sun" data-s="16"></i>Hiển thị</span><span><i data-i="cloud" data-s="16"></i>Đồng bộ &amp; dữ liệu</span></div>
+
+    <div class="card">
+      <div class="ch"><div><h3><span class="num">1</span>Chọn nhà cung cấp AI</h3><p>Dùng cho tính năng “AI tóm tắt” – rút ý chính từ đoạn văn hoặc đường link.</p></div></div>
+      <div class="pg">
+        <div class="pv sel"><span class="rd"></span><div class="lg" style="background:#111">x</div><b>Grok (xAI)</b><small>grok-4-fast</small><span class="bdg ok"><i data-i="check" data-s="12" data-w="3"></i>Đã kết nối</span></div>
+        <div class="pv"><span class="rd"></span><div class="lg" style="background:linear-gradient(135deg,#2563eb,#06b6d4)">In</div><b>Intern AI</b><small>intern-s1</small><span class="bdg mut">Chưa có key</span></div>
+        <div class="pv"><span class="rd"></span><div class="lg" style="background:linear-gradient(135deg,#f97316,#f59e0b)"><i data-i="cloud" data-s="18" data-w="2.4"></i></div><b>Cloudflare Workers AI</b><small>@cf/meta/llama-3.1-8b</small><span class="bdg warn">Thiếu Account ID</span></div>
+        <div class="pv"><span class="rd"></span><div class="lg" style="background:linear-gradient(135deg,#6b7280,#374151)"><i data-i="plug" data-s="18" data-w="2.4"></i></div><b>OpenAI-compatible</b><small>Tùy chỉnh endpoint</small><span class="bdg mut">Chưa cấu hình</span></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+    <div class="card">
+      <div class="ch"><div><h3><span class="num">2</span>Kết nối — Grok (xAI)</h3><p>Điền API key, bấm kiểm tra là xong. Endpoint đã điền sẵn.</p></div><span class="bdg ok" style="margin:0"><i data-i="check" data-s="12" data-w="3"></i>Hoạt động</span></div>
+      <div class="callout"><i data-i="key" data-s="18"></i><div><b>Lấy key ở đâu?</b> Đăng nhập console.x.ai → <b>API Keys</b> → <b>Create API Key</b>, sao chép key bắt đầu bằng <code>xai-</code> và dán vào ô bên dưới. <a>Mở console.x.ai <i data-i="external" data-s="13"></i></a></div></div>
+      <div class="f"><div class="lbl">API key<a><i data-i="help" data-s="14"></i>Lấy key ở đâu?</a></div>
+        <div class="inp"><i data-i="lock" data-s="16" style="color:#9ca3af"></i><span class="mono">xai-••••••••••••••••••••••••7Qf2</span><span class="ia"><i data-i="eye" data-s="17"></i><i data-i="clipboard" data-s="17"></i></span></div>
+        <div class="help">Key được mã hoá và chỉ dùng để gọi AI từ trình duyệt của bạn.</div></div>
+      <div class="f"><div class="lbl">Địa chỉ API (Base URL)<span style="font-weight:500;color:var(--ink3);font-size:12px">Mặc định</span></div>
+        <div class="inp ro"><i data-i="globe" data-s="16" style="color:#9ca3af"></i><span class="mono">https://api.x.ai/v1</span></div></div>
+      <div style="display:flex;gap:10px;margin-bottom:18px"><span class="btn"><i data-i="plug" data-s="16"></i>Kiểm tra kết nối</span><span class="res"><i data-i="check" data-s="16" data-w="2.6"></i>Kết nối thành công <small>· 412 ms · 21:28 06/10</small></span></div>
+      <div class="f" style="margin-bottom:0"><div class="lbl">Model</div>
+        <div class="mrow">
+          <div class="sel-wrap">
+            <div class="inp" style="border-color:var(--pri);box-shadow:0 0 0 4px rgba(79,70,229,.1)"><span class="mono">grok-4-fast</span><i data-i="down" data-s="17" style="color:var(--ink3)"></i></div>
+            <div class="dd">
+              <div class="s"><i data-i="search" data-s="15"></i>Lọc model… <span style="margin-left:auto;font-size:11.5px">9 model</span></div>
+              <div class="op on"><i data-i="check" data-s="15" data-w="2.6"></i><span class="mono">grok-4-fast</span><span class="tg">Khuyên dùng</span><small>nhanh · rẻ</small></div>
+              <div class="op"><span style="width:15px"></span><span class="mono">grok-4</span><small>chất lượng cao</small></div>
+              <div class="op"><span style="width:15px"></span><span class="mono">grok-3-mini</span><small>tiết kiệm</small></div>
+              <div class="op"><span style="width:15px"></span><span class="mono">grok-code-fast-1</span><small>lập trình</small></div>
+            </div>
+          </div>
+          <span class="btn"><i data-i="refresh" data-s="16"></i>Tải danh sách model</span>
+        </div>
+        <div class="help" style="margin-top:196px">Đã tải 9 model lúc 21:28 · Có thể gõ tên model tùy ý nếu không có trong danh sách.</div>
+      </div>
+    </div>
+
+    <div>
+    <div class="card">
+      <div class="ch"><div><h3><span class="num">3</span>Tùy chọn tóm tắt</h3></div></div>
+      <div class="f"><div class="lbl">Ngôn ngữ bản tóm tắt</div><div class="inp"><span style="flex:1">Tiếng Việt</span><i data-i="down" data-s="17" style="color:var(--ink3)"></i></div></div>
+      <div class="f"><div class="lbl">Độ dài</div><div class="seg"><div>Ngắn · 3 ý</div><div class="on">Vừa · 5 ý</div><div>Chi tiết</div></div></div>
+      <div class="tr"><div><b>Lưu kèm đường link gốc</b><small>Hiện nguồn bên dưới bản tóm tắt</small></div><span class="sw on"></span></div>
+      <div class="tr"><div><b>Đồng bộ key giữa các thiết bị</b><small>Tắt: key chỉ lưu trên máy này</small></div><span class="sw"></span></div>
+    </div>
+    <div class="card">
+      <div class="ch" style="margin-bottom:12px"><div><h3><i data-i="wand" data-s="16" style="color:var(--pri)"></i>Thử nhanh</h3></div></div>
+      <div class="test"><div class="q">“Supabase là nền tảng backend mã nguồn mở…”</div>• Supabase cung cấp cơ sở dữ liệu Postgres, đăng nhập và lưu trữ file.<br>• Có thể dùng trực tiếp từ web tĩnh như GitHub Pages.</div>
+    </div>
+    </div>
+    </div>
+    <div class="savebar"><span class="ls"><i data-i="clock" data-s="14"></i>Lưu lần cuối 21:28 06/10/2026</span><span class="btn">Hủy</span><span class="btn pri"><i data-i="save" data-s="16"></i>Lưu cài đặt</span></div>
+  </div>
+</main>
+</div>
+<script src="icons.js"></script>
+</body></html>

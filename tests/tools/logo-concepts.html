@@ -1,0 +1,48 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../app/css/fonts.css">
+<style>
+*{box-sizing:border-box;margin:0}
+body{font-family:BVP,system-ui,sans-serif;background:#f4f2ee;color:#1f2430;padding:36px 40px;width:1500px}
+h1{font-size:28px;font-weight:800;letter-spacing:-.5px}
+.sub{color:#5b6070;margin:6px 0 26px;font-size:15px}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.c{background:#fff;border-radius:20px;padding:22px;border:2px solid #e7e3da;position:relative}
+.c.def{border-color:#5b50ec;box-shadow:0 0 0 5px rgba(91,80,236,.15)}
+.badge{position:absolute;top:18px;right:18px;background:#5b50ec;color:#fff;font-weight:700;font-size:13px;padding:4px 12px;border-radius:999px}
+.c h2{font-size:19px;font-weight:800}.c .k{font-size:13px;color:#6b7080;margin:3px 0 16px}
+.hero{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hero div{border-radius:14px;display:grid;place-items:center;height:190px}
+.hero .l{background:#fbf7ee}.hero .d{background:#14161b}
+.hero img{width:128px;height:128px}
+.sizes{display:flex;align-items:center;gap:16px;margin:16px 0;padding:12px 14px;background:#f6f5f2;border-radius:12px;font-size:12px;color:#5b6070}
+.sizes img{display:block}
+.tab{display:flex;align-items:center;gap:6px;background:#dfe3ea;border-radius:8px 8px 0 0;padding:6px 10px;font-size:12px;color:#333;margin-left:auto}
+.lock{display:flex;align-items:center;gap:14px;padding:16px;border-radius:14px;background:#fff;border:1px solid #eee}
+.lock.dk{background:#12151c;border-color:#12151c;color:#e7e9ee;margin-top:10px}
+.lock img{width:52px;height:52px}
+.lock b{font-size:28px;font-weight:800;letter-spacing:-.6px;display:block;line-height:1.1}
+.lock b span{color:#5b50ec}.lock.dk b span{color:#2dd4bf}
+.lock small{font-size:13.5px;color:#6b7080;font-weight:500}.lock.dk small{color:#a3a9b8}
+ul{margin:14px 0 0 18px;font-size:13.5px;line-height:1.6;color:#3d4250}
+.foot{margin-top:24px;font-size:14px;color:#3d4250;background:#fff;border-radius:16px;padding:16px 20px;border:1px solid #e7e3da;line-height:1.6}
+</style></head><body>
+<h1>Ghi Chú — 3 phương án logo</h1>
+<div class="sub">Biểu tượng (icon) + chữ (wordmark). Thử trên nền sáng/tối và ở kích thước thật 32px, 16px (favicon). Khẩu hiệu mặc định: <b>“Nghĩ là ghi, cần là thấy”</b>.</div>
+<div class="cols" id="cols"></div>
+<div class="foot"><b>Chọn A làm mặc định</b> vì: nhận ra ngay là “ghi chú” kể cả ở 16px (trang giấy gấp góc), các chấm màu ở đầu dòng nói đúng điểm riêng của ứng dụng — <i>thời gian lưu theo từng dòng</i> (xanh = đã lưu, vàng = chưa lưu), dùng tốt trên nền sáng lẫn tối, và hợp màu chủ đạo #4f46e5. B gọn và hiện đại nhưng chữ G không nói lên “ghi chú”; C mang bản sắc Việt (hoa sen) nhưng nhiều chi tiết, mờ ở 16px.</div>
+<script>
+const C = [
+  ['concept-a-trang-dau-gio.svg', 'A · Trang ghi có dấu giờ', 'Tờ giấy gấp góc, mỗi dòng có chấm thời gian', true, ['Rõ nghĩa “ghi chú” ở mọi cỡ', 'Gắn với tính năng thời gian theo dòng', 'Favicon 16px dùng bản rút gọn 2 dòng'], 'favicon.svg'],
+  ['concept-b-chu-g-dau-sac.svg', 'B · Chữ G có dấu sắc', 'Chữ G một nét + dấu sắc của chữ “Chú”', false, ['Tối giản, rất nét ở 16px', 'Dấu sắc gợi tiếng Việt', 'Ít gợi “ghi chú”, giống nhiều logo chữ G']],
+  ['concept-c-sen-giay.svg', 'C · Sen giấy', 'Bông sen ba cánh, cánh giữa là trang giấy', false, ['Bản sắc Việt Nam rõ', 'Màu xanh ngọc dịu mắt', 'Nhiều chi tiết, khó đọc ở 16px']],
+];
+const base = '../../app/img/logo/';
+document.getElementById('cols').innerHTML = C.map(([f, t, k, def, pts, fav]) => `<div class="c ${def ? 'def' : ''}">${def ? '<span class="badge">Mặc định</span>' : ''}
+  <h2>${t}</h2><div class="k">${k}</div>
+  <div class="hero"><div class="l"><img src="${base + f}"></div><div class="d"><img src="${base + f}"></div></div>
+  <div class="sizes"><img src="${base + f}" width="32" height="32"> 32px <img src="${base + (fav || f)}" width="16" height="16"> 16px
+    <span class="tab"><img src="${base + (fav || f)}" width="16" height="16">Ghi Chú</span></div>
+  <div class="lock"><img src="${base + f}"><div><b>Ghi <span>Chú</span></b><small>Nghĩ là ghi, cần là thấy</small></div></div>
+  <div class="lock dk"><img src="${base + f}"><div><b>Ghi <span>Chú</span></b><small>Nghĩ là ghi, cần là thấy</small></div></div>
+  <ul>${pts.map(p => `<li>${p}</li>`).join('')}</ul></div>`).join('');
+</script></body></html>

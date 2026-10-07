@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 340" preserveAspectRatio="xMidYMid slice">
+<rect width="600" height="340" fill="#11181c"/><g opacity=".15" stroke="#3ecf8e"><path d="M0 60h600M0 120h600M0 180h600M0 240h600M0 300h600M100 0v340M200 0v340M300 0v340M400 0v340M500 0v340"/></g>
+<path d="M310 80 L230 190 H300 L290 260 L370 150 H300Z" fill="#3ecf8e"/>
+<text x="300" y="305" text-anchor="middle" font-family="Inter, sans-serif" font-size="22" font-weight="700" fill="#e6e6e6">Auth · Email</text>
+</svg>

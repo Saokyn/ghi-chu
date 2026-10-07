@@ -1,0 +1,178 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Admin – Tùy chỉnh giao diện</title>
+<link rel="stylesheet" href="fonts.css"><link rel="stylesheet" href="a-shell.css">
+<style>
+.content{padding:24px 32px 36px;overflow:visible}
+.ph{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.adm{font-size:11.5px;font-weight:700;background:#111827;color:#fff;border-radius:6px;padding:3px 8px;display:flex;align-items:center;gap:5px}
+.ph .sp{flex:1}
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border-radius:10px;font-weight:600;font-size:13.5px;border:1px solid #d9dce3;background:#fff;white-space:nowrap}
+.btn.pri{background:var(--pri);color:#fff;border-color:var(--pri);box-shadow:0 4px 12px rgba(79,70,229,.25)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.st{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;gap:12px;align-items:center}
+.st .ic2{width:38px;height:38px;border-radius:10px;display:grid;place-items:center}
+.st small{font-size:12px;color:var(--ink3);display:block}.st b{font-size:20px;font-weight:700;letter-spacing:-.3px}.st em{font-style:normal;font-size:11.5px;color:#059669;font-weight:600;margin-left:6px}
+.cols{display:grid;grid-template-columns:1fr 452px;gap:18px;align-items:start}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:16px}
+.card h3{font-size:14.5px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.card h3 small{font-weight:500;color:var(--ink3);font-size:12px;margin-left:auto}
+.f{margin-bottom:14px}.f:last-child{margin-bottom:0}
+.lbl{font-size:13px;font-weight:600;margin-bottom:7px;display:block}
+.inp{height:40px;border:1px solid #d9dce3;border-radius:10px;display:flex;align-items:center;padding:0 12px;font-size:14px;gap:8px}
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.logo-row{display:flex;gap:12px;align-items:center}
+.logo-row img{width:56px;height:56px;border-radius:14px}
+.drop{flex:1;border:1.5px dashed #c9cdd6;border-radius:12px;height:56px;display:flex;align-items:center;gap:10px;padding:0 14px;color:var(--ink2);font-size:13px;background:#fafbfc}
+.drop b{color:var(--pri);font-weight:600}.drop small{color:var(--ink3);font-size:12px;margin-left:auto}
+.sws{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sw{width:34px;height:34px;border-radius:10px;position:relative}
+.sw.on{box-shadow:0 0 0 2px #fff,0 0 0 4px #059669}
+.sw.on:after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/16px no-repeat}
+.hex{height:34px;border:1px solid #d9dce3;border-radius:10px;display:flex;align-items:center;gap:8px;padding:0 10px;font-family:MonoL,monospace;font-size:13px;margin-left:6px}
+.hex i,.hex .c{width:16px;height:16px;border-radius:5px;background:#059669;display:inline-block}
+.fonts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fo{border:1.5px solid #e5e7eb;border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:12px}
+.fo .aa{font-size:24px;width:44px;text-align:center}
+.fo b{font-size:13.5px;font-weight:600;display:block}.fo small{font-size:12px;color:var(--ink3)}
+.fo.on{border-color:#059669;background:#f0fdf8;box-shadow:0 0 0 3px rgba(5,150,105,.1)}
+.lays{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lo{border:1.5px solid #e5e7eb;border-radius:12px;padding:10px;text-align:center;font-size:13px;font-weight:600}
+.lo.on{border-color:#059669;background:#f0fdf8;color:#047857}
+.mini{height:64px;border-radius:8px;background:#f3f4f6;margin-bottom:8px;padding:8px;display:grid;gap:5px}
+.mini.l{grid-template-rows:repeat(3,1fr)}.mini.l div{background:#fff;border-radius:4px}
+.mini.g{grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr}.mini.g div{background:#fff;border-radius:4px}
+.lo.on .mini div{background:#d1fae5}
+.seg{display:flex;background:#f3f4f6;border-radius:10px;padding:3px;margin-left:0}
+.seg div{flex:1;width:auto;white-space:nowrap;height:36px;display:flex;align-items:center;justify-content:center;gap:5px;padding:0 6px;border-radius:8px;font-size:13px;font-weight:500;color:var(--ink2)}
+.seg .on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.rng{display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--ink3)}
+.bar{flex:1;height:6px;border-radius:3px;background:linear-gradient(90deg,#059669 55%,#e5e7eb 55%);position:relative}
+.bar:after{content:"";position:absolute;left:55%;top:50%;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid #059669;transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.tg{width:38px;height:22px;border-radius:999px;background:#d1d5db;position:relative;flex:none}.tg:after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.tg.on{background:var(--pri)}.tg.on:after{left:19px}
+.tr{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)}.tr:first-of-type{border-top:0;padding-top:0}
+.tr b{font-size:13.5px;font-weight:600;display:block}.tr small{font-size:12px;color:var(--ink3)}.tr .tg{margin-left:auto}
+/* preview */
+.pvh{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.pvh b{font-size:14.5px;font-weight:700}.live{font-size:11px;font-weight:700;color:#059669;background:#ecfdf5;border-radius:999px;padding:2px 8px;display:flex;align-items:center;gap:5px}
+.live:before{content:"";width:6px;height:6px;border-radius:50%;background:#10b981}
+.pvh .seg{margin-left:auto;flex:none}.pvh .seg div{height:28px;padding:0 10px;font-size:12px;flex:none}
+.win{border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;box-shadow:0 12px 30px rgba(16,24,40,.1)}
+.wb{height:26px;background:#f3f4f6;display:flex;align-items:center;gap:5px;padding:0 10px}.wb i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.wb span{margin-left:10px;font-size:10px;color:#9ca3af;background:#fff;border-radius:5px;padding:2px 10px}
+.pv{background:#f6faf8;font-family:BVP;padding:12px}
+.pvt{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.pvt img{width:24px;height:24px;border-radius:7px}.pvt b{font-size:13px;font-weight:700}
+.pvt .s{flex:1;height:26px;border-radius:8px;background:#fff;border:1px solid #e3ebe7;font-size:10.5px;color:#9ca3af;display:flex;align-items:center;padding:0 8px;margin:0 6px}
+.pvt .a{height:26px;border-radius:8px;background:#059669;color:#fff;font-size:10.5px;font-weight:600;display:flex;align-items:center;padding:0 9px;gap:4px}
+.pg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pc{background:#fff;border-radius:calc(var(--r,12px) * .8);padding:9px;border:1px solid #e6eeea;font-size:10px;color:#4b5563;line-height:1.45}
+.pc b{display:block;font-size:11px;color:#111827;margin-bottom:3px}
+.pc .t{font-size:9px;color:#9ca3af;margin-top:5px}
+.pc .k{display:inline-block;font-size:8.5px;font-weight:700;padding:1px 6px;border-radius:999px;background:#d1fae5;color:#047857;margin-bottom:4px}
+.pc .im{height:42px;border-radius:6px;background:url(img/halong.svg) center/cover;margin-bottom:5px}
+.users table{width:100%;border-collapse:collapse;font-size:12.5px}
+.users td{padding:8px 0;border-top:1px solid var(--line)}
+.users tr:first-child td{border-top:0}
+.ua{width:26px;height:26px;border-radius:50%;color:#fff;font-size:10.5px;font-weight:700;display:inline-grid;place-items:center;margin-right:8px;vertical-align:middle}
+.users .r{text-align:right;color:var(--ink3)}
+.role{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;background:#111827;color:#fff;margin-left:6px}
+</style></head><body>
+<div class="app">
+<aside>
+  <div class="brand"><div class="logo"><i data-i="notes" data-s="19"></i></div><div><b>Ghi Chú</b><small>Ghi nhanh · nhớ lâu</small></div></div>
+  <div class="nav"><i data-i="notes"></i>Tất cả ghi chú<span class="n">48</span></div>
+  <div class="nav"><i data-i="pin"></i>Đã ghim<span class="n">3</span></div>
+  <div class="sec">Loại ghi chú</div>
+  <div class="nav"><i data-i="text"></i>Văn bản<span class="n">27</span></div>
+  <div class="nav"><i data-i="image"></i>Hình ảnh<span class="n">9</span></div>
+  <div class="nav"><i data-i="link"></i>Đường link<span class="n">7</span></div>
+  <div class="nav"><i data-i="ai"></i>AI tóm tắt<span class="n">5</span></div>
+  <div class="nav"><i data-i="settings"></i>Cài đặt</div>
+  <div class="sec">Quản trị</div>
+  <div class="nav"><i data-i="chart"></i>Tổng quan</div>
+  <div class="nav"><i data-i="users"></i>Người dùng<span class="n">128</span></div>
+  <div class="nav on"><i data-i="palette"></i>Tùy chỉnh giao diện</div>
+  <div class="side-foot">
+    <div class="sync"><i data-i="cloud" data-s="16"></i>Đã đồng bộ · 2 thiết bị</div>
+    <div class="me"><div class="av">AK</div><div><b>Amli Kasa</b><small>Quản trị viên</small></div></div>
+  </div>
+</aside>
+<main>
+<div class="content">
+  <div class="ph"><h1>Tùy chỉnh giao diện</h1><span class="adm"><i data-i="shield" data-s="12" data-w="2.6"></i>ADMIN</span><span class="sp"></span><span class="btn"><i data-i="undo" data-s="16"></i>Khôi phục mặc định</span><span class="btn pri"><i data-i="check" data-s="16" data-w="2.6"></i>Lưu &amp; áp dụng cho mọi người</span></div>
+  <div class="stats">
+    <div class="st"><div class="ic2" style="background:#eef2ff;color:#4f46e5"><i data-i="users" data-s="19"></i></div><div><small>Người dùng</small><b>128</b><em>+6 tuần này</em></div></div>
+    <div class="st"><div class="ic2" style="background:#fdf2f8;color:#db2777"><i data-i="notes" data-s="19"></i></div><div><small>Tổng ghi chú</small><b>4.512</b><em>+214</em></div></div>
+    <div class="st"><div class="ic2" style="background:#ecfeff;color:#0891b2"><i data-i="chart" data-s="19"></i></div><div><small>Hoạt động 7 ngày</small><b>46</b><em>36%</em></div></div>
+    <div class="st"><div class="ic2" style="background:#fffbeb;color:#d97706"><i data-i="image" data-s="19"></i></div><div><small>Dung lượng ảnh</small><b>1,2 GB</b><em style="color:var(--ink3)">/ 5 GB</em></div></div>
+  </div>
+  <div class="cols">
+  <div>
+    <div class="card"><h3><i data-i="star" data-s="16"></i>Thương hiệu</h3>
+      <div class="r2 f"><div><span class="lbl">Tên ứng dụng</span><div class="inp">Sổ Tay Nhà Kasa</div></div><div><span class="lbl">Khẩu hiệu</span><div class="inp">Ghi lại mọi điều quan trọng</div></div></div>
+      <div class="f"><span class="lbl">Logo</span><div class="logo-row"><img src="img/leaf-logo.svg"><div class="drop"><i data-i="upload" data-s="18"></i><span style="line-height:1.4"><b>Tải logo lên</b> hoặc kéo thả vào đây<br><small style="margin:0">PNG, SVG · tối đa 1 MB · tự tạo favicon</small></span></div></div></div>
+    </div>
+    <div class="card"><h3><i data-i="palette" data-s="16"></i>Màu chủ đạo</h3>
+      <div class="sws"><span class="sw" style="background:#4f46e5"></span><span class="sw on" style="background:#059669"></span><span class="sw" style="background:#0ea5e9"></span><span class="sw" style="background:#e11d48"></span><span class="sw" style="background:#f97316"></span><span class="sw" style="background:#a855f7"></span><span class="sw" style="background:#ca8a04"></span><span class="sw" style="background:#111827"></span><span class="hex"><span class="c"></span>#059669</span></div>
+    </div>
+    <div class="card"><h3><i data-i="type" data-s="16"></i>Phông chữ<small>Tất cả đều hỗ trợ đủ dấu tiếng Việt</small></h3>
+      <div class="fonts">
+        <div class="fo on"><span class="aa" style="font-family:BVP;font-weight:600">Ấa</span><div><b style="font-family:BVP">Be Vietnam Pro</b><small>Rõ ràng, hiện đại</small></div></div>
+        <div class="fo"><span class="aa" style="font-family:InterL;font-weight:600">Ấa</span><div><b style="font-family:InterL">Inter</b><small>Gọn, trung tính</small></div></div>
+        <div class="fo"><span class="aa" style="font-family:NunitoL;font-weight:800">Ấa</span><div><b style="font-family:NunitoL">Nunito</b><small>Bo tròn, thân thiện</small></div></div>
+        <div class="fo"><span class="aa" style="font-family:LoraL;font-weight:600">Ấa</span><div><b style="font-family:LoraL">Lora</b><small>Có chân, kiểu sổ tay</small></div></div>
+      </div>
+    </div>
+    <div class="card"><h3><i data-i="layout" data-s="16"></i>Bố cục &amp; chủ đề</h3>
+      <div class="r2 f">
+        <div><span class="lbl">Bố cục mặc định</span><div class="lays"><div class="lo"><div class="mini l"><div></div><div></div><div></div></div>Danh sách</div><div class="lo on"><div class="mini g"><div></div><div></div><div></div><div></div><div></div><div></div></div>Lưới</div></div></div>
+        <div><span class="lbl">Chủ đề</span><div class="seg" style="margin-bottom:14px"><div class="on"><i data-i="sun" data-s="15"></i>Sáng</div><div><i data-i="moon" data-s="15"></i>Tối</div><div><i data-i="monitor" data-s="15"></i>Hệ thống</div></div>
+          <span class="lbl">Độ bo góc</span><div class="rng">Vuông<div class="bar"></div>Tròn</div></div>
+      </div>
+    </div>
+    <div class="card"><h3><i data-i="users" data-s="16"></i>Người dùng &amp; quyền</h3>
+      <div class="tr"><div><b>Cho phép đăng ký tài khoản mới</b><small>Tắt để chỉ những email được mời mới đăng nhập được</small></div><span class="tg on"></span></div>
+      <div class="tr"><div><b>Bắt buộc xác nhận email</b><small>Gửi email xác nhận qua Supabase Auth khi đăng ký</small></div><span class="tg on"></span></div>
+      <div class="tr"><div><b>Cho người dùng tự đổi sáng/tối</b><small>Người dùng vẫn giữ màu và phông chữ của admin</small></div><span class="tg"></span></div>
+    </div>
+  </div>
+  <div>
+    <div class="card">
+      <div class="pvh"><b>Xem trước</b><span class="live">Trực tiếp</span><div class="seg"><div class="on"><i data-i="monitor" data-s="13"></i>Máy tính</div><div>Điện thoại</div></div></div>
+      <div class="win"><div class="wb"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><span>sotay.kasa.vn</span></div>
+        <div class="pv">
+          <div class="pvt"><img src="img/leaf-logo.svg"><b>Sổ Tay Nhà Kasa</b><div class="s">Tìm kiếm ghi chú…</div><div class="a">+ Thêm mới</div></div>
+          <div class="pg">
+            <div class="pc"><span class="k">ĐÃ GHIM</span><b>Việc cần làm tuần này</b>Gọi thợ sửa máy lạnh · Nộp thuế TNCN…<div class="t">Sửa 21:30 06/10</div></div>
+            <div class="pc"><div class="im"></div><b>Đi Hạ Long 20/10</b><div class="t">Sửa 09:15 06/10</div></div>
+            <div class="pc"><span class="k" style="background:#fef3c7;color:#92400e">AI</span><b>Ngủ ngon hơn</b>① Ngủ cùng giờ ② Tắt màn hình sớm<div class="t">Sửa 22:41 05/10</div></div>
+            <div class="pc"><b>Quà Trung thu</b>Bánh dẻo trà xanh + thiệp viết tay<div class="t">Sửa 21:24 06/10</div></div>
+            <div class="pc"><b>Huyết áp của bố</b>Sáng 118/76 · Tối 124/80<div class="t">Sửa 19:15 05/10</div></div>
+            <div class="pc"><b>Phở bò Hà Nội</b><span style="color:#059669">youtube.com</span><div class="t">Sửa 11:07 06/10</div></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--ink3);margin-top:10px;display:flex;align-items:center;gap:6px"><i data-i="help" data-s="13"></i>Thay đổi chỉ áp dụng cho mọi người sau khi bấm “Lưu &amp; áp dụng”.</div>
+    </div>
+    <div class="card users"><h3><i data-i="users" data-s="16"></i>Người dùng gần đây<small>Xem tất cả 128 →</small></h3>
+      <table>
+        <tr><td><span class="ua" style="background:#f97316">AK</span>amli.kasa@gmail.com<span class="role">Admin</span></td><td class="r">48 ghi chú</td><td class="r">vừa xong</td></tr>
+        <tr><td><span class="ua" style="background:#0ea5e9">TN</span>tuan.nguyen@outlook.com</td><td class="r">112 ghi chú</td><td class="r">2 giờ trước</td></tr>
+        <tr><td><span class="ua" style="background:#a855f7">LH</span>linh.hoang@gmail.com</td><td class="r">37 ghi chú</td><td class="r">hôm qua</td></tr>
+        <tr><td><span class="ua" style="background:#e11d48">MP</span>minh.pham@yahoo.com</td><td class="r">9 ghi chú</td><td class="r">3 ngày trước</td></tr>
+      </table>
+    </div>
+    <div class="card users"><h3><i data-i="history" data-s="16"></i>Lịch sử chỉnh giao diện</h3>
+      <table>
+        <tr><td>Đổi màu chủ đạo → <b style="color:#059669">#059669</b></td><td class="r">21:12 06/10/2026</td></tr>
+        <tr><td>Tải logo mới (leaf-logo.svg)</td><td class="r">21:10 06/10/2026</td></tr>
+        <tr><td>Đổi tên ứng dụng → “Sổ Tay Nhà Kasa”</td><td class="r">20:58 06/10/2026</td></tr>
+      </table>
+    </div>
+  </div>
+  </div>
+</div>
+</main>
+</div>
+<script src="icons.js"></script>
+</body></html>

@@ -1,0 +1,175 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Phương án A – Danh sách</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+:root{--pri:#4f46e5;--pri-50:#eef2ff;--pri-100:#e0e7ff;--ink:#111827;--ink2:#4b5563;--ink3:#9ca3af;--line:#eceef2;--bg:#f7f8fa}
+body{font-family:BVP,sans-serif;color:var(--ink);background:var(--bg);font-size:14px}
+.app{display:grid;grid-template-columns:248px 1fr;height:100vh}
+aside{background:#fff;border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:4px}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px}
+.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:grid;place-items:center;color:#fff;box-shadow:0 4px 12px rgba(99,102,241,.35)}
+.brand b{font-size:17px;font-weight:700;letter-spacing:-.2px}.brand small{display:block;font-size:11px;color:var(--ink3);font-weight:500;margin-top:1px}
+.nav{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;color:var(--ink2);font-weight:500;font-size:14px}
+.nav .n{margin-left:auto;font-size:12px;color:var(--ink3);font-weight:500}
+.nav.on{background:var(--pri-50);color:var(--pri);font-weight:600}.nav.on .n{color:var(--pri)}
+.sec{font-size:11px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.6px;padding:16px 10px 6px}
+.dot{width:9px;height:9px;border-radius:50%}
+.side-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:12px}
+.sync{display:flex;align-items:center;gap:8px;font-size:12px;color:#059669;background:#ecfdf5;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-weight:500}
+.me{display:flex;align-items:center;gap:10px;padding:6px 6px}
+.av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+.me b{font-size:13px;font-weight:600;display:block}.me small{font-size:11.5px;color:var(--ink3)}
+main{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.top{height:66px;display:flex;align-items:center;gap:12px;padding:0 32px;background:rgba(247,248,250,.9);border-bottom:1px solid var(--line)}
+.search{flex:1;max-width:560px;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:11px;padding:0 12px;height:40px;color:var(--ink3);box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.search span:not(.kbd){flex:1;white-space:nowrap;overflow:hidden}.kbd{font-size:11px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;color:var(--ink3);font-weight:500;background:#fafafa}
+.seg{display:flex;background:#eef0f3;border-radius:10px;padding:3px;margin-left:auto}
+.seg div{width:34px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--ink3)}.seg .on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.btn-pri{display:flex;align-items:center;gap:8px;background:var(--pri);color:#fff;border:0;border-radius:11px;height:40px;padding:0 16px 0 13px;font-weight:600;font-size:14px;box-shadow:0 4px 14px rgba(79,70,229,.3)}
+.btn-pri .chev{opacity:.8;margin-left:2px;border-left:1px solid rgba(255,255,255,.3);padding-left:8px;display:flex}
+.content{padding:22px 32px 40px;overflow:hidden}
+.head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+h1{font-size:22px;font-weight:700;letter-spacing:-.3px}.head p{color:var(--ink3);font-size:13px;margin-top:3px}
+.chips{display:flex;gap:6px}.chip{font-size:12.5px;font-weight:500;border:1px solid #e5e7eb;background:#fff;border-radius:999px;padding:5px 12px;color:var(--ink2);display:flex;align-items:center;gap:6px}.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.group{font-size:12px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.6px;margin:18px 2px 8px;display:flex;align-items:center;gap:6px}
+.list{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.03)}
+.row{display:flex;align-items:center;gap:14px;padding:13px 16px;border-top:1px solid var(--line);position:relative}
+.row:first-child{border-top:0}
+.row.hover{background:#fafaff}
+.tic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;flex:none}
+.t-text{background:#eef2ff;color:#4f46e5}.t-img{background:#fdf2f8;color:#db2777}.t-link{background:#ecfeff;color:#0891b2}.t-ai{background:linear-gradient(135deg,#fef3c7,#fde68a);color:#b45309}
+.body{flex:1;min-width:0}
+.title{font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.title .pinmark{color:var(--pri);display:flex}
+.tag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px;background:#f3f4f6;color:var(--ink2)}
+.tag.ai{background:#fef3c7;color:#92400e}
+.snip{color:var(--ink2);font-size:13px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{display:flex;gap:14px;color:var(--ink3);font-size:11.5px;margin-top:5px;align-items:center}
+.meta span{display:flex;align-items:center;gap:4px}
+.thumb{width:64px;height:44px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--line)}
+.acts{display:flex;gap:2px;flex:none}
+.ib{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink3)}
+.ib.on{color:var(--pri)}
+.row.hover .ib{color:var(--ink2)}.row.hover .ib.on{color:var(--pri)}
+.row.hover .ib.hl{background:var(--pri-50);color:var(--pri)}
+.tip{position:absolute;right:100px;top:48px;z-index:3;background:#111827;color:#fff;font-size:11.5px;padding:4px 8px;border-radius:6px;font-weight:500;white-space:nowrap}
+.toast{position:fixed;right:28px;bottom:22px;background:#111827;color:#fff;border-radius:12px;padding:11px 16px;display:flex;align-items:center;gap:10px;font-size:13.5px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+.toast .ok{width:22px;height:22px;border-radius:50%;background:#10b981;display:grid;place-items:center}
+.toast u{text-decoration:none;color:#a5b4fc;font-weight:600;margin-left:8px}
+/* menu */
+.overlay{position:fixed;inset:0;background:rgba(17,24,39,.28);backdrop-filter:blur(1.5px);display:none}
+.menu{position:fixed;top:60px;right:32px;width:400px;background:#fff;border-radius:16px;box-shadow:0 24px 60px rgba(17,24,39,.25),0 0 0 1px rgba(17,24,39,.06);padding:8px;display:none}
+.menu h4{font-size:12px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.6px;padding:10px 12px 6px}
+.mi{display:flex;gap:13px;align-items:center;padding:11px 12px;border-radius:11px}
+.mi .tic{width:42px;height:42px;border-radius:12px}
+.mi b{font-size:14.5px;font-weight:600;display:block}.mi small{font-size:12.5px;color:var(--ink2);display:block;margin-top:1px;line-height:1.35}
+.mi .k{margin-left:auto;font-size:11px;color:var(--ink3);border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-weight:500;align-self:center}
+.mi.sel{background:#f5f5ff;box-shadow:inset 0 0 0 1px #e0e7ff}
+.menu .foot{border-top:1px solid var(--line);margin:6px 4px 0;padding:10px 8px 4px;font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:7px}
+.new-badge{font-size:10px;font-weight:700;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;border-radius:5px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+body.menu-open .overlay,body.menu-open .menu{display:block}
+body.menu-open .toast{display:none}
+body.menu-open .btn-pri{position:relative;z-index:5;box-shadow:0 0 0 4px rgba(255,255,255,.9),0 4px 14px rgba(79,70,229,.3)}
+</style></head>
+<body>
+<div class="app">
+<aside>
+  <div class="brand"><div class="logo"><i data-i="notes" data-s="19"></i></div><div><b>Ghi Chú</b><small>Ghi nhanh · nhớ lâu</small></div></div>
+  <div class="nav on"><i data-i="notes"></i>Tất cả ghi chú<span class="n">48</span></div>
+  <div class="nav"><i data-i="pin"></i>Đã ghim<span class="n">3</span></div>
+  <div class="sec">Loại ghi chú</div>
+  <div class="nav"><i data-i="text"></i>Văn bản<span class="n">27</span></div>
+  <div class="nav"><i data-i="image"></i>Hình ảnh<span class="n">9</span></div>
+  <div class="nav"><i data-i="link"></i>Đường link<span class="n">7</span></div>
+  <div class="nav"><i data-i="ai"></i>AI tóm tắt<span class="n">5</span></div>
+  <div class="sec">Khác</div>
+  <div class="nav"><i data-i="trash"></i>Thùng rác<span class="n">2</span></div>
+  <div class="nav"><i data-i="settings"></i>Cài đặt</div>
+  <div class="side-foot">
+    <div class="sync"><i data-i="cloud" data-s="16"></i>Đã đồng bộ · 2 thiết bị</div>
+    <div class="me"><div class="av">AK</div><div><b>Amli Kasa</b><small>amli.kasa@gmail.com</small></div></div>
+  </div>
+</aside>
+<main>
+  <div class="top">
+    <div class="search"><i data-i="search"></i><span>Tìm ghi chú, nội dung, đường link…</span><span class="kbd">Ctrl K</span></div>
+    <div class="seg"><div class="on"><i data-i="list" data-s="17"></i></div><div><i data-i="grid" data-s="17"></i></div></div>
+    <button class="btn-pri"><i data-i="plus" data-s="18" data-w="2.4"></i>Thêm mới<span class="chev"><i data-i="down" data-s="15"></i></span></button>
+  </div>
+  <div class="content">
+    <div class="head"><div><h1>Tất cả ghi chú</h1><p>48 ghi chú · cập nhật lần cuối lúc 21:30 hôm nay</p></div>
+      <div class="chips"><span class="chip on">Tất cả</span><span class="chip">Văn bản</span><span class="chip">Hình ảnh</span><span class="chip">Link</span><span class="chip">AI</span><span class="chip"><i data-i="clock" data-s="13"></i>Mới sửa</span></div></div>
+
+    <div class="group"><i data-i="pin" data-s="13"></i>Đã ghim</div>
+    <div class="list">
+      <div class="row">
+        <div class="tic t-text"><i data-i="text"></i></div>
+        <div class="body"><div class="title"><span class="pinmark"><i data-i="pin" data-s="13"></i></span>Việc cần làm tuần này</div>
+          <div class="snip">Gọi thợ sửa máy lạnh · Nộp tờ khai thuế TNCN trước 15/10 · Mua quà sinh nhật mẹ · Đặt bàn nhà hàng tối thứ Bảy</div>
+          <div class="meta"><span><i data-i="plus" data-s="12"></i>Tạo 08:12 05/10/2026</span><span><i data-i="edit" data-s="12"></i>Sửa 21:30 06/10/2026</span></div></div>
+        <div class="acts"><div class="ib"><i data-i="copy" data-s="17"></i></div><div class="ib on"><i data-i="pin" data-s="17"></i></div><div class="ib"><i data-i="more" data-s="17"></i></div></div>
+      </div>
+      <div class="row">
+        <div class="tic t-ai"><i data-i="ai"></i></div>
+        <div class="body"><div class="title"><span class="pinmark"><i data-i="pin" data-s="13"></i></span>Thị trường căn hộ TP.HCM quý III/2026 <span class="tag ai">AI tóm tắt</span></div>
+          <div class="snip">① Nguồn cung mới tăng 18% so với cùng kỳ ② Giá sơ cấp đi ngang ở mức 62 triệu/m² ③ Phân khúc vừa túi tiền vẫn khan hiếm</div>
+          <div class="meta"><span><i data-i="plus" data-s="12"></i>Tạo 14:47 04/10/2026</span><span><i data-i="edit" data-s="12"></i>Sửa 14:52 04/10/2026</span><span><i data-i="link" data-s="12"></i>cafef.vn</span></div></div>
+        <div class="acts"><div class="ib"><i data-i="copy" data-s="17"></i></div><div class="ib on"><i data-i="pin" data-s="17"></i></div><div class="ib"><i data-i="more" data-s="17"></i></div></div>
+      </div>
+    </div>
+
+    <div class="group">Gần đây</div>
+    <div class="list">
+      <div class="row hover"><span class="tip">Sao chép văn bản</span>
+        <div class="tic t-text"><i data-i="text"></i></div>
+        <div class="body"><div class="title">Ý tưởng quà Trung thu cho khách hàng</div>
+          <div class="snip">Hộp bánh dẻo trà xanh + thiệp viết tay; ngân sách ~350.000đ/hộp; chốt danh sách 40 khách trước 10/10…</div>
+          <div class="meta"><span><i data-i="plus" data-s="12"></i>Tạo 20:58 06/10/2026</span><span><i data-i="edit" data-s="12"></i>Sửa 21:24 06/10/2026</span></div></div>
+        <div class="acts"><div class="ib hl"><i data-i="copy" data-s="17"></i></div><div class="ib"><i data-i="pin" data-s="17"></i></div><div class="ib"><i data-i="edit" data-s="17"></i></div><div class="ib"><i data-i="trash" data-s="17"></i></div></div>
+      </div>
+      <div class="row">
+        <div class="tic t-img"><i data-i="image"></i></div>
+        <div class="body"><div class="title">Ảnh bảng trắng – họp sprint 14</div>
+          <div class="snip">Dán từ clipboard · 1 ảnh · 1280×896 · “Chụp lại để chia nhóm việc cho tuần sau”</div>
+          <div class="meta"><span><i data-i="plus" data-s="12"></i>Tạo 16:20 06/10/2026</span><span><i data-i="edit" data-s="12"></i>Sửa 16:20 06/10/2026</span></div></div>
+        <img class="thumb" src="img/whiteboard.svg">
+        <div class="acts"><div class="ib"><i data-i="copy" data-s="17"></i></div><div class="ib"><i data-i="pin" data-s="17"></i></div><div class="ib"><i data-i="more" data-s="17"></i></div></div>
+      </div>
+      <div class="row">
+        <div class="tic t-link"><i data-i="link"></i></div>
+        <div class="body"><div class="title">Cách nấu phở bò Hà Nội chuẩn vị</div>
+          <div class="snip">youtube.com/watch?v=pho-bo-ha-noi · Video 18:42 · Nước dùng ninh xương 8 tiếng, quế, hồi, thảo quả nướng</div>
+          <div class="meta"><span><i data-i="plus" data-s="12"></i>Tạo 11:05 06/10/2026</span><span><i data-i="edit" data-s="12"></i>Sửa 11:07 06/10/2026</span></div></div>
+        <img class="thumb" src="img/pho.svg">
+        <div class="acts"><div class="ib"><i data-i="copy" data-s="17"></i></div><div class="ib"><i data-i="pin" data-s="17"></i></div><div class="ib"><i data-i="more" data-s="17"></i></div></div>
+      </div>
+      <div class="row">
+        <div class="tic t-ai"><i data-i="ai"></i></div>
+        <div class="body"><div class="title">7 thói quen giúp ngủ ngon hơn <span class="tag ai">AI tóm tắt</span></div>
+          <div class="snip">Đi ngủ – thức dậy cùng giờ · Tránh màn hình 60 phút trước khi ngủ · Không cà phê sau 14:00 · Phòng ngủ 26–27°C</div>
+          <div class="meta"><span><i data-i="plus" data-s="12"></i>Tạo 22:41 05/10/2026</span><span><i data-i="edit" data-s="12"></i>Sửa 22:41 05/10/2026</span><span><i data-i="link" data-s="12"></i>vnexpress.net</span></div></div>
+        <div class="acts"><div class="ib"><i data-i="copy" data-s="17"></i></div><div class="ib"><i data-i="pin" data-s="17"></i></div><div class="ib"><i data-i="more" data-s="17"></i></div></div>
+      </div>
+      <div class="row">
+        <div class="tic t-text"><i data-i="text"></i></div>
+        <div class="body"><div class="title">Chỉ số huyết áp của bố</div>
+          <div class="snip">Sáng 118/76 – mạch 72 · Tối 124/80 – mạch 75 · Nhắc bố uống thuốc lúc 7:00 và 19:00</div>
+          <div class="meta"><span><i data-i="plus" data-s="12"></i>Tạo 07:02 01/10/2026</span><span><i data-i="edit" data-s="12"></i>Sửa 19:15 05/10/2026</span></div></div>
+        <div class="acts"><div class="ib"><i data-i="copy" data-s="17"></i></div><div class="ib"><i data-i="pin" data-s="17"></i></div><div class="ib"><i data-i="more" data-s="17"></i></div></div>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+<div class="toast"><span class="ok"><i data-i="check" data-s="14" data-w="3"></i></span>Đã sao chép nội dung văn bản vào clipboard<u>Hoàn tác</u></div>
+<div class="overlay"></div>
+<div class="menu">
+  <h4>Tạo ghi chú mới</h4>
+  <div class="mi sel"><div class="tic t-text"><i data-i="text" data-s="20"></i></div><div><b>Văn bản</b><small>Ghi nhanh ý tưởng, danh sách việc cần làm</small></div><span class="k">N</span></div>
+  <div class="mi"><div class="tic t-img"><i data-i="image" data-s="20"></i></div><div><b>Hình ảnh</b><small>Tải ảnh lên hoặc dán trực tiếp bằng Ctrl+V</small></div><span class="k">I</span></div>
+  <div class="mi"><div class="tic t-link"><i data-i="link" data-s="20"></i></div><div><b>Đường link</b><small>Lưu trang web kèm tiêu đề và ảnh xem trước</small></div><span class="k">L</span></div>
+  <div class="mi"><div class="tic t-ai"><i data-i="ai" data-s="20"></i></div><div><b>AI tóm tắt <span class="new-badge">MỚI</span></b><small>Dán đoạn văn hoặc URL, AI rút ra các ý chính để ghi nhớ</small></div><span class="k">A</span></div>
+  <div class="foot"><i data-i="clipboard" data-s="14"></i>Mẹo: dán ảnh bằng Ctrl+V ở bất kỳ đâu để tạo nhanh</div>
+</div>
+<script src="icons.js"></script>
+<script>if(location.search.includes('menu'))document.body.classList.add('menu-open')</script>
+</body></html>

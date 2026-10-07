@@ -1,0 +1,15 @@
+@font-face{font-family:"BVP";src:url(fonts/BeVietnamPro-Light.ttf);font-weight:300}
+@font-face{font-family:"BVP";src:url(fonts/BeVietnamPro-Regular.ttf);font-weight:400}
+@font-face{font-family:"BVP";src:url(fonts/BeVietnamPro-Italic.ttf);font-weight:400;font-style:italic}
+@font-face{font-family:"BVP";src:url(fonts/BeVietnamPro-Medium.ttf);font-weight:500}
+@font-face{font-family:"BVP";src:url(fonts/BeVietnamPro-SemiBold.ttf);font-weight:600}
+@font-face{font-family:"BVP";src:url(fonts/BeVietnamPro-Bold.ttf);font-weight:700}
+@font-face{font-family:"BVP";src:url(fonts/BeVietnamPro-ExtraBold.ttf);font-weight:800}
+@font-face{font-family:"NunitoL";src:url(fonts/Nunito.ttf);font-weight:200 1000}
+@font-face{font-family:"LoraL";src:url(fonts/Lora.ttf);font-weight:400 700}
+@font-face{font-family:"InterL";src:url(fonts/Inter.ttf);font-weight:100 900}
+@font-face{font-family:"MonoL";src:url(fonts/GeistMono.ttf);font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+svg.ic{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:middle}

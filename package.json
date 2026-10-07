@@ -1,0 +1,16 @@
+{
+  "name": "ghi-chu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ứng dụng ghi chú tiếng Việt — frontend tĩnh (GitHub Pages) + Supabase",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/",
+    "serve": "python3 -m http.server 5180 --directory app",
+    "e2e": "node tests/e2e/run.mjs"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}
