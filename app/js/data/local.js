@@ -101,7 +101,7 @@ export function createLocalAdapter() {
       async create(fields) {
         need();
         const t = nowIso();
-        const n = Object.assign({ id: uuid(), user_id: user.id, type: 'text', title: '', content: '', image_path: null, url: null, link_meta: null, ai_source: null, pinned: false, color: null, folder_id: null, tags: [], line_times: [], created_at: t, updated_at: t }, fields, { user_id: user.id });
+        const n = Object.assign({ id: uuid(), user_id: user.id, type: 'text', title: '', content: '', image_path: null, url: null, link_meta: null, ai_source: null, pinned: false, color: null, folder_id: null, tags: [], loc_name: null, loc_lat: null, loc_lng: null, loc_acc: null, line_times: [], created_at: t, updated_at: t }, fields, { user_id: user.id });
         const list = loadNotes(); list.unshift(n); saveNotes(list);
         return n;
       },

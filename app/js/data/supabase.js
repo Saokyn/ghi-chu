@@ -6,7 +6,7 @@ import { mergeAi } from './local.js';
 
 const BUCKET = 'note-images';
 let prefsQueue = Promise.resolve();
-const NOTE_COLS_BASE = 'id,user_id,type,title,content,image_path,url,link_meta,ai_source,pinned,line_times,folder_id,tags,created_at,updated_at';
+const NOTE_COLS_BASE = 'id,user_id,type,title,content,image_path,url,link_meta,ai_source,pinned,line_times,folder_id,tags,loc_name,loc_lat,loc_lng,loc_acc,created_at,updated_at';
 // Cột "color" (màu ghi chú) được thêm ở bản 2 của schema.sql. Nếu dự án chưa chạy lại schema.sql thì
 // PostgREST báo thiếu cột → ứng dụng tự chuyển sang lưu màu trên máy này (localStorage) và vẫn chạy bình thường.
 const isMissingColor = (e) => !!e && (e.code === '42703' || e.code === 'PGRST204' || (/color/i.test(e.message || '') && /column|schema cache/i.test(e.message || '')));

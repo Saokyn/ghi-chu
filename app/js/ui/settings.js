@@ -74,6 +74,8 @@ function displayTab(box, app) {
       <button class="sw ${app.prefs.showLunar ? 'on' : ''}" data-lunar role="switch" aria-checked="${!!app.prefs.showLunar}" aria-label="Hiện ngày âm lịch cạnh thời gian"></button></div>
     <div class="tr"><div><b>Gợi ý thư mục khi lưu ghi chú mới</b><small>Sau khi lưu ghi chú mới chưa có thư mục, hiện gợi ý “Gợi ý: …” (dùng AI nếu đã cấu hình, mỗi ghi chú tối đa 1 lần gọi)</small></div>
       <button class="sw ${app.prefs.folderSuggest !== false ? 'on' : ''}" data-fsug role="switch" aria-checked="${app.prefs.folderSuggest !== false}" aria-label="Gợi ý thư mục khi lưu ghi chú mới"></button></div>
+    <div class="tr"><div><b>Hiện vị trí trên ghi chú</b><small>Hiện chip 📍 tên địa điểm trên danh sách ghi chú (chỉ ghi chú bạn đã tự thêm vị trí). Tắt chỉ ẩn chip, vị trí vẫn được giữ.</small></div>
+      <button class="sw ${app.prefs.showLocation !== false ? 'on' : ''}" data-showloc role="switch" aria-checked="${app.prefs.showLocation !== false}" aria-label="Hiện vị trí trên ghi chú"></button></div>
     <div class="tr" style="display:block"><div><b>Mặt giấy đọc & soạn</b><small>Màu nền và màu chữ dịu mắt cho vùng viết ghi chú, tách biệt với màu giao diện</small></div>
       <div class="rths" role="radiogroup" aria-label="Mặt giấy đọc và soạn">${[['auto', 'Tự động', 'Giấy ấm / Tối ấm theo chủ đề'], ...READING_KEYS.map(k => [k, READING[k].name, READING_DESC[k]])].map(([k, n, d]) => {
         const on = (app.prefs.readingTheme || 'auto') === k;
@@ -89,6 +91,8 @@ function displayTab(box, app) {
     if (rt) { app.savePrefs({ readingTheme: rt.dataset.rt }); app.applyTheme(); displayTab(box, app); toast('Mặt giấy: ' + (READING[rt.dataset.rt]?.name || 'Tự động')); return; }
     const lu = e.target.closest('[data-lunar]');
     if (lu) { const on = !lu.classList.contains('on'); lu.classList.toggle('on', on); lu.setAttribute('aria-checked', on); app.savePrefs({ showLunar: on }); toast(on ? 'Đã bật ngày âm lịch cạnh thời gian' : 'Đã tắt ngày âm lịch cạnh thời gian'); return; }
+    const sl = e.target.closest('[data-showloc]');
+    if (sl) { const on = !sl.classList.contains('on'); sl.classList.toggle('on', on); sl.setAttribute('aria-checked', on); app.savePrefs({ showLocation: on }); toast(on ? 'Đã bật hiện vị trí trên ghi chú' : 'Đã ẩn vị trí trên danh sách ghi chú'); return; }
     const fs = e.target.closest('[data-fsug]');
     if (fs) { const on = !fs.classList.contains('on'); fs.classList.toggle('on', on); fs.setAttribute('aria-checked', on); app.savePrefs({ folderSuggest: on }); toast(on ? 'Đã bật gợi ý thư mục' : 'Đã tắt gợi ý thư mục'); return; }
     const lt = e.target.closest('[data-lt]');

@@ -8,6 +8,8 @@ import { inFolder, folderPath, NONE } from '../folders.js';
 import { NOTE_TYPES } from '../defaults.js';
 import { splitLines } from '../lineTimes.js';
 import { noteColor } from '../palette.js';
+import { hasLoc } from '../geo.js';
+import { locChipHTML } from './location.js';
 
 const CIRC = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
 const FILTER_TITLES = { all: 'Tất cả ghi chú', pinned: 'Đã ghim', text: 'Văn bản', image: 'Hình ảnh', link: 'Đường link', ai: 'AI tóm tắt' };
@@ -43,15 +45,16 @@ function ncData(n) { return `data-color="${noteColor(n)}"`; }
 const favColor = d => ['#15803d', '#9f1239', '#0369a1', '#6d28d9', '#c2410c', '#0e7490', '#a16207'][[...d].reduce((a, c) => a + c.charCodeAt(0), 0) % 7];
 
 export function filterNotes(app) {
-  const { nav, q, day, folder } = app.filter;
+  const { nav, q, day, folder, loc } = app.filter;
   let list = app.notes;
   if (day) list = list.filter(n => vnDateKey(n.created_at) === day);
   if (folder) list = list.filter(n => inFolder(n, folder, app.folders || []));
+  if (loc) list = list.filter(hasLoc);
   if (nav === 'pinned') list = list.filter(n => n.pinned);
   else if (NOTE_TYPES[nav]) list = list.filter(n => n.type === nav);
   const words = fold(q).trim().split(/\s+/).filter(Boolean);
   if (words.length) list = list.filter(n => {
-    const hay = fold([n.title, n.content, n.url, n.link_meta?.title, n.link_meta?.description, ...(n.tags || []).map(t => '#' + t), folderPath(app.folders || [], n.folder_id)].filter(Boolean).join(' \n '));
+    const hay = fold([n.title, n.content, n.url, n.link_meta?.title, n.link_meta?.description, ...(n.tags || []).map(t => '#' + t), folderPath(app.folders || [], n.folder_id), n.loc_name].filter(Boolean).join(' \n '));
     return words.every(w => hay.includes(w));
   });
   return [...list].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
@@ -69,7 +72,12 @@ function groups(app) {
 function chipsHTML(app) {
   const f = app.filter.nav;
   const C = [['all', 'Tất cả'], ['text', 'Văn bản'], ['image', 'Hình ảnh'], ['link', 'Link'], ['ai', 'AI']];
-  return `<div class="chips" role="tablist">${C.map(([k, l]) => `<button class="chip ${f === k || (k === 'all' && f === 'pinned' && false) ? 'on' : ''}" data-nav="${k}">${l}</button>`).join('')}${f === 'pinned' ? `<button class="chip on" data-nav="pinned">${icon('pin', 13)}Đã ghim</button>` : ''}</div>`;
+  return `<div class="chips" role="tablist">${C.map(([k, l]) => `<button class="chip ${f === k || (k === 'all' && f === 'pinned' && false) ? 'on' : ''}" data-nav="${k}">${l}</button>`).join('')}${f === 'pinned' ? `<button class="chip on" data-nav="pinned">${icon('pin', 13)}Đã ghim</button>` : ''}${locFilterChip(app)}</div>`;
+}
+/** Chip lọc “Có vị trí” — chỉ hiện khi có ghi chú có vị trí (hoặc đang lọc) */
+export function locFilterChip(app, cls = 'chip') {
+  if (!app.filter.loc && !app.notes.some(hasLoc)) return '';
+  return `<button class="${cls} locf ${app.filter.loc ? 'on' : ''}" data-locf aria-pressed="${!!app.filter.loc}" title="Chỉ hiện ghi chú có vị trí">${icon('mappin', 13)}Có vị trí</button>`;
 }
 export function dayChipHTML(app) {
   if (!app.filter.day) return '';
@@ -78,6 +86,7 @@ export function dayChipHTML(app) {
 }
 function emptyHTML(app) {
   if (app.filter.day && !filterNotes(app).length) return `<div class="empty"><div class="ei">${icon('calendar', 28)}</div><b>Không có ghi chú nào tạo trong ngày này</b>${esc(describeDay(app.filter.day).text)}<br><button class="btn" data-act="dayclear">Bỏ lọc theo ngày</button></div>`;
+  if (app.filter.loc && !filterNotes(app).length) return `<div class="empty"><div class="ei">${icon('mappin', 28)}</div><b>Không có ghi chú nào có vị trí</b>Mở một ghi chú và bấm “Vị trí” để thêm (tuỳ chọn).<br><button class="btn" data-locf>Bỏ lọc vị trí</button></div>`;
   if (app.filter.q) return `<div class="empty"><div class="ei">${icon('search', 28)}</div><b>Không tìm thấy ghi chú phù hợp</b>Thử từ khoá khác (tìm theo tiêu đề và nội dung, không phân biệt dấu).</div>`;
   if (app.notes.length) return `<div class="empty"><div class="ei">${icon('notes', 28)}</div><b>Chưa có ghi chú loại này</b>Bấm “Thêm mới” để tạo.</div>`;
   return `<div class="empty"><div class="ei">${icon('notes', 28)}</div><b>Chưa có ghi chú nào</b>Ghi nhanh văn bản, dán ảnh, lưu đường link hoặc nhờ AI tóm tắt.<br><button class="btn pri" data-act="new">${icon('plus', 16, 2.4)}Tạo ghi chú đầu tiên</button></div>`;
@@ -94,7 +103,7 @@ export function notesAreaHTML(app, view) {
   if (view === 'twopane') {
     return `<div class="tp"><section class="lp">
       <div class="lh" id="lp-head">${app.lpHeadHTML ? app.lpHeadHTML() : `<h2>Ghi chú<small>${app.notes.length}</small></h2>${dayChipHTML(app)}`}</div>
-      <div class="tabs">${[['all', 'Tất cả'], ['text', 'Văn bản'], ['image', 'Ảnh'], ['link', 'Link'], ['ai', 'AI']].map(([k, l]) => `<button class="${app.filter.nav === k || (app.filter.nav === 'pinned' && k === 'all') ? 'on' : ''}" data-nav="${k}">${l}</button>`).join('')}</div>
+      <div class="tabs">${[['all', 'Tất cả'], ['text', 'Văn bản'], ['image', 'Ảnh'], ['link', 'Link'], ['ai', 'AI']].map(([k, l]) => `<button class="${app.filter.nav === k || (app.filter.nav === 'pinned' && k === 'all') ? 'on' : ''}" data-nav="${k}">${l}</button>`).join('')}${locFilterChip(app, 'tabl')}</div>
       <div class="scroll" id="lp-list">${twoPaneListHTML(app)}</div>
     </section><section class="ed-pane" id="ed-pane"></section></div>`;
   }
@@ -123,9 +132,13 @@ let folderLookup = () => null;
 /** main.js gắn: (note) → HTML nhãn thư mục (ẩn khi đang xem chính thư mục đó) */
 export function setFolderLookup(f) { folderLookup = f; }
 const tagsHTML = n => (n.tags || []).slice(0, 4).map(t => `<span class="ntag" data-tagq="${esc(t)}">#${esc(t)}</span>`).join('');
+let showLoc = true;
+/** main.js gắn theo tuỳ chọn “Hiện vị trí trên ghi chú” */
+export function setShowLocation(v) { showLoc = v !== false; }
+const locChip = (n, sz = 12) => (showLoc ? locChipHTML(n, sz) : '');
 function metaHTML(n, sz = 12) {
   const d = n.type === 'link' ? domainOf(n.url) : sourceUrl(n) ? domainOf(n.ai_source) : '';
-  return (folderLookup(n) || '') + remBadge(n, sz) + tagsHTML(n) + `<span>${icon('plus', sz)}Tạo ${formatStamp(n.created_at)}</span><span>${icon('edit', sz)}Sửa ${formatStamp(n.updated_at)}</span>${d ? `<span>${icon('link', sz)}${esc(d)}</span>` : ''}`;
+  return (folderLookup(n) || '') + remBadge(n, sz) + locChip(n, sz) + tagsHTML(n) + `<span>${icon('plus', sz)}Tạo ${formatStamp(n.created_at)}</span><span>${icon('edit', sz)}Sửa ${formatStamp(n.updated_at)}</span>${d ? `<span>${icon('link', sz)}${esc(d)}</span>` : ''}`;
 }
 function actsHTML(n, sz = 17) {
   return `<button class="ib" data-act="copy" data-id="${n.id}" title="Sao chép văn bản" aria-label="Sao chép">${icon('copy', sz)}</button>`
@@ -150,7 +163,7 @@ function cardHTML(n, app) {
   const T = NOTE_TYPES[n.type] || NOTE_TYPES.text;
   const cls = ncCls(n) + `" ${ncData(n)} data-type="${n.type}`;
   const pin = n.pinned ? `<div class="pin">${icon('pin', 15, 2.4)}</div>` : '';
-  const foot = `<div class="foot"><div class="t"><span>Tạo ${formatStamp(n.created_at)}</span><span>Sửa ${formatStamp(n.updated_at)}</span></div><div class="a">${actsHTML(n, 15).replace(/ hov/g, '')}</div></div>`;
+  const lc = locChip(n, 12), foot = (lc ? `<div class="cloc">${lc}</div>` : '') + `<div class="foot"><div class="t"><span>Tạo ${formatStamp(n.created_at)}</span><span>Sửa ${formatStamp(n.updated_at)}</span></div><div class="a">${actsHTML(n, 15).replace(/ hov/g, '')}</div></div>`;
   const title = `<h3>${esc(titleOf(n))}</h3>`;
   const typ = `<span class="typ">${icon(T.icon, 12, 2.6)}${T.label}</span>`;
   if (n.type === 'image') {
@@ -174,7 +187,7 @@ export function twoPaneListHTML(app) {
   if (!gs.length) return emptyHTML(app);
   return gs.map(g => `<div class="gl">${g.key === 'pinned' ? icon('pin', 12, 2.4) : ''}${esc(g.label)}</div>` + g.items.map(n => {
     const T = NOTE_TYPES[n.type] || NOTE_TYPES.text;
-    return `<div class="it ${ncCls(n)} ${app.selectedId === n.id ? 'on' : ''}" ${ncData(n)} data-open="${n.id}" draggable="true" tabindex="0"><div class="ti" title="${T.label}">${icon(T.icon, 15)}</div><div class="bd"><b>${esc(titleOf(n))}</b><p>${esc(snippetOf(n)) || '&nbsp;'}</p><div class="tm"><span>Tạo ${formatDateTime(n.created_at)}</span><span>Sửa ${formatDateTime(n.updated_at)}</span></div></div>${n.pinned ? `<span class="pn">${icon('pin', 13, 2.4)}</span>` : ''}</div>`;
+    return `<div class="it ${ncCls(n)} ${app.selectedId === n.id ? 'on' : ''}" ${ncData(n)} data-open="${n.id}" draggable="true" tabindex="0"><div class="ti" title="${T.label}">${icon(T.icon, 15)}</div><div class="bd"><b>${esc(titleOf(n))}</b><p>${esc(snippetOf(n)) || '&nbsp;'}</p><div class="tm"><span>Tạo ${formatDateTime(n.created_at)}</span><span>Sửa ${formatDateTime(n.updated_at)}</span>${locChip(n, 11)}</div></div>${n.pinned ? `<span class="pn">${icon('pin', 13, 2.4)}</span>` : ''}</div>`;
   }).join('')).join('');
 }
 

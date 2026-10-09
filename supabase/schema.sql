@@ -770,4 +770,20 @@ revoke all on public.chat_conversations from anon;
 grant select, insert, update, delete on public.chat_conversations to authenticated;
 grant all on public.chat_conversations to service_role;
 
+-- ============================== Pha 5: Vị trí của ghi chú (tuỳ chọn) ==============================
+-- Mặc định không có vị trí. Chỉ đặt khi người dùng tự bấm (vị trí hiện tại / tìm địa chỉ / nhập tên).
+-- loc_name: tên/địa chỉ (có thể chỉ có tên, không toạ độ) · loc_lat/loc_lng: cả hai hoặc không · loc_acc: độ chính xác (m).
+-- RLS của notes áp dụng sẵn cho các cột này. Đổi vị trí không đổi updated_at (notes_touch không xét các cột này).
+alter table public.notes add column if not exists loc_name text;
+alter table public.notes add column if not exists loc_lat  double precision;
+alter table public.notes add column if not exists loc_lng  double precision;
+alter table public.notes add column if not exists loc_acc  real;
+do $$ begin
+  alter table public.notes add constraint notes_loc_check check (
+        (loc_name is null or char_length(btrim(loc_name)) between 1 and 200)
+    and ((loc_lat is null) = (loc_lng is null))
+    and (loc_lat is null or (loc_lat between -90 and 90 and loc_lng between -180 and 180))
+    and (loc_acc is null or (loc_lat is not null and loc_acc >= 0 and loc_acc <= 1000000)));
+exception when duplicate_object then null; end $$;
+
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

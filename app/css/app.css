@@ -980,3 +980,58 @@ body.chat-open .chat-fab,body:has(#layer .modal) .chat-fab{display:none}
   @keyframes chup{from{transform:translateY(30px)}}
   .cm .bub{max-width:92%}
 }
+
+/* ============================== Giai đoạn 5: Vị trí (tuỳ chọn) ============================== */
+.lbtnw{display:contents}
+.lbtn{display:inline-flex;align-items:center;gap:5px;border:1px dashed var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px;color:var(--ink3);flex:none}
+.lbtn:hover{border-color:var(--pri);color:var(--pri)}
+.lchip{display:inline-flex;align-items:center;border:1px solid color-mix(in srgb,#0d9488 35%,transparent);background:color-mix(in srgb,#0d9488 9%,var(--panel));border-radius:999px;color:#0f766e;font-size:12.5px;max-width:280px;flex:none}
+[data-theme=dark] .lchip{color:#5eead4}
+.lchip .lview{display:inline-flex;align-items:center;gap:5px;padding:3px 4px 3px 10px;color:inherit;min-width:0;font-weight:600}
+.lchip .lview span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lchip .ledit{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:inherit;opacity:.75;flex:none}
+.lchip .ledit:hover{opacity:1;background:color-mix(in srgb,#0d9488 15%,transparent)}
+.nloc{display:inline-flex;align-items:center;gap:3px;color:#0f766e;font-weight:600;cursor:pointer;border-radius:6px;padding:0 4px;max-width:220px;min-width:0}
+.nloc span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nloc:hover,.nloc:focus-visible{background:color-mix(in srgb,#0d9488 12%,transparent);outline:0}
+[data-theme=dark] .nloc,[data-theme=dark] .tabl.locf.on{color:#5eead4}
+.card-n .cloc{margin-top:8px;font-size:12px;display:flex}
+.chip.locf.on,.tabl.locf.on{background:#0f766e;color:#fff;border-color:#0f766e}
+.tabl{font-size:12.5px;font-weight:600;color:var(--ink3);padding:5px 10px;border-radius:7px;display:inline-flex;align-items:center;gap:4px}
+.tabl.locf.on{background:color-mix(in srgb,#0d9488 16%,transparent);color:#0f766e}
+.tic.t-loc{background:color-mix(in srgb,#0d9488 14%,transparent);color:#0f766e}
+.dlg.loc-dlg,.dlg.loc-prev{max-width:560px}
+.loc-dlg .db{display:flex;flex-direction:column;gap:10px}
+.loc-dlg .dh h3 small,.loc-prev .dh h3 small{display:block;font-size:12px;font-weight:500;color:var(--ink3);margin-top:2px}
+.locgps{justify-content:center;width:100%}
+.locgps.loading,.lsearch .btn.loading{opacity:.6}
+.lsearch{display:flex;gap:8px}.lsearch .inpw{flex:1}
+.lvn{font-size:12.5px;color:var(--ink3);display:flex;gap:6px;align-items:center;margin-top:-4px}
+.lres{display:flex;flex-direction:column;gap:2px;max-height:210px;overflow-y:auto}
+.lres:empty{display:none}
+.lri{display:flex;gap:8px;align-items:flex-start;text-align:left;padding:7px 9px;border-radius:9px;border:0;background:none;color:var(--ink);cursor:pointer}
+.lri:hover,.lri:focus-visible{background:var(--panel2)}
+.lri>svg{color:#0f766e;flex:none;margin-top:2px}
+.lri span{display:flex;flex-direction:column;min-width:0}
+.lri b{font-size:13.5px;font-weight:600}
+.lri small{font-size:11.5px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lmsg{font-size:12.5px;color:var(--ink2);display:flex;gap:6px;align-items:center;padding:4px 2px;line-height:1.45}
+.lmsg .spin{width:14px;height:14px}
+.loc-dlg .fl{display:flex;flex-direction:column;gap:6px}
+.loc-dlg .fl>span{font-size:12.5px;font-weight:600;color:var(--ink2)}
+.loc-dlg .fl>span small{font-weight:400;color:var(--ink3)}
+.lcoord{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink2);flex-wrap:wrap}
+.lcoord:empty{display:none}
+.lcoord .btn{margin-left:auto}
+.lmap{height:190px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--panel2);position:relative;z-index:0}
+.lmap[hidden]{display:none}
+.lmap.big{height:min(52vh,380px)}
+.lmap-loading{display:grid;place-items:center}
+.lmap-msg{font-size:12.5px;color:var(--ink3);display:flex;gap:6px;align-items:center}
+.lmap .leaflet-control-attribution{font-size:10px}
+.lnomap{display:flex;flex-direction:column;align-items:center;gap:8px;padding:28px 10px;color:var(--ink3);text-align:center;font-size:13px;background:var(--panel2);border-radius:12px}
+.lpriv{font-size:11.5px;display:flex;gap:5px;align-items:flex-start;margin:0}
+.lpriv svg{flex:none;margin-top:2px}
+.loc-prev .df{flex-wrap:wrap}
+@media (max-width:600px){.loc-prev .df .btn{flex:1;justify-content:center}.lchip{max-width:100%}}
+.loc-prev a.btn{text-decoration:none}

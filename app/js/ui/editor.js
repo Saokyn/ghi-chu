@@ -11,6 +11,8 @@ import { titleOf, hydrateImages } from './notes.js';
 import { PALETTE, PALETTE_KEYS, noteColor } from '../palette.js';
 import { folderPath, parseTags, normTag } from '../folders.js';
 import { openMovePicker, suggestForNew } from './folders.js';
+import { normLoc, hasLoc, sameLoc, locLabel } from '../geo.js';
+import { openLocationDialog, openMapPreview } from './location.js';
 
 const FIELDS = ['title', 'content', 'url', 'link_meta', 'ai_source', 'image_path'];
 const PLACEHOLDER = {
@@ -30,6 +32,7 @@ export class Editor {
     this.color = PALETTE[note.color] ? note.color : null;
     this.folderId = note.folder_id || null;
     this.tags = Array.isArray(note.tags) ? [...note.tags] : [];
+    this.loc = normLoc(note); // vị trí (tuỳ chọn) — chỉ đặt khi người dùng bấm
     this.cur = {};
     for (const f of FIELDS) this.cur[f] = note[f] ?? (f === 'title' || f === 'content' ? '' : null);
     this.pendingImage = null; // ảnh mới (đã nén) chưa tải lên
@@ -81,8 +84,10 @@ export class Editor {
     this.ro.observe(this.el.querySelector('.tawrap'));
   }
   destroy() { if (this._outside) document.removeEventListener('pointerdown', this._outside, true); this.ro?.disconnect(); cancelAnimationFrame(this.raf); this.el.remove(); this.destroyed = true; }
-  focusTitle() { setTimeout(() => this.q('.title-in')?.focus(), 30); }
-  focusContent() { setTimeout(() => { const t = this.q('.ta'); if (t && !this.app.isTouch) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 30); }
+  // Không giật con trỏ nếu người dùng đã kịp bấm vào ô khác trong trình soạn (ví dụ ô nhãn) trước khi hẹn giờ chạy
+  userFocused() { const a = document.activeElement; return !!a && a !== document.body && this.el.contains(a) && a.matches('input,textarea,select,[contenteditable]'); }
+  focusTitle() { setTimeout(() => { if (!this.userFocused()) this.q('.title-in')?.focus(); }, 30); }
+  focusContent() { setTimeout(() => { const t = this.q('.ta'); if (t && !this.app.isTouch && !this.userFocused()) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 30); }
   q(s) { return this.el.querySelector(s); }
 
   /* ---------- dựng giao diện ---------- */
@@ -107,7 +112,7 @@ export class Editor {
       <div class="ed-scroll"><div class="doc ${lt ? 'lt' : ''}">
         <div class="meta2"></div>
         <input class="title-in" placeholder="Tiêu đề ghi chú" aria-label="Tiêu đề" maxlength="300">
-        <div class="fline"><button class="fbtn" data-e="folder" title="Chuyển vào thư mục" aria-label="Chuyển vào thư mục"></button><div class="tagrow"></div></div>
+        <div class="fline"><button class="fbtn" data-e="folder" title="Chuyển vào thư mục" aria-label="Chuyển vào thư mục"></button><span class="lbtnw"></span><div class="tagrow"></div></div>
         <div class="fsug" hidden></div>
         <div class="tsec"></div>
         <div class="lines"><div class="gut" aria-hidden="true"></div><div class="tawrap"><textarea class="ta" spellcheck="false" aria-label="Nội dung"></textarea><div class="mirror" aria-hidden="true"></div></div></div>
@@ -133,7 +138,7 @@ export class Editor {
     this.el.addEventListener('focusout', e => { if (e.target.matches?.('.tagin') && e.target.value.trim()) { const v = e.target.value; e.target.value = ''; this.setTags([...this.tags, v]); } });
     this.q('.fsug').addEventListener('fsg-moved', e => { this.folderId = e.detail; this.renderFolder(); });
     this.el.addEventListener('keydown', e => { if (e.key === 'Escape' && this.mode === 'modal') { e.stopPropagation(); this.onRequestClose?.(); } });
-    this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.applyColor(); this.renderFolder(); this.renderTags();
+    this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.applyColor(); this.renderFolder(); this.renderTags(); this.renderLoc();
   }
 
   renderMeta() {
@@ -227,6 +232,8 @@ export class Editor {
       if (this.saved) openMovePicker(this.app, [this.saved.id]);
       else openMovePicker(this.app, [], { current: this.folderId, onPick: id => { this.folderId = id; this.renderFolder(); } });
     }
+    else if (k === 'loc') this.editLoc();
+    else if (k === 'locview') openMapPreview(this.app, { id: this.noteId(), ...this.loc }, { onEdit: () => this.editLoc() });
     else if (k === 'untag') this.setTags(this.tags.filter(t => t !== b.dataset.t));
     else if (k === 'remind') {
       if (!this.saved) { if (!this.isDirty()) { toast('Viết ghi chú rồi lưu trước khi đặt nhắc', { kind: 'info' }); return; } await this.save(); }
@@ -317,7 +324,7 @@ export class Editor {
       d.line_times = computeLineTimes(this.baseLineTimes(), d.content || '', now);
       d.updated_at = now;
       let note;
-      if (!this.saved) note = await this.app.createNote(Object.assign(d, this.draftId ? { id: this.draftId } : {}, { type: this.type, pinned: this.pinned, color: this.color, folder_id: this.folderId, tags: this.tags, created_at: now }));
+      if (!this.saved) note = await this.app.createNote(Object.assign(d, this.draftId ? { id: this.draftId } : {}, { type: this.type, pinned: this.pinned, color: this.color, folder_id: this.folderId, tags: this.tags, ...(hasLoc(this.loc) ? this.loc : {}), created_at: now }));
       else note = await this.app.updateNote(this.saved.id, d);
       if (oldImage && oldImage !== note.image_path && !/^(data:|img\/)/.test(oldImage)) this.app.data.images.remove(oldImage).catch(() => {});
       const wasDraft = !this.saved;
@@ -335,7 +342,7 @@ export class Editor {
   /* ---------- đồng bộ từ thiết bị khác ---------- */
   loadFrom(n) {
     this.saved = n; this.pinned = !!n.pinned; this.pendingImage = null; this.color = PALETTE[n.color] ? n.color : null; this.applyColor();
-    this.folderId = n.folder_id || null; this.tags = [...(n.tags || [])]; this.renderFolder(); this.renderTags();
+    this.folderId = n.folder_id || null; this.tags = [...(n.tags || [])]; this.renderFolder(); this.renderTags(); this.loc = normLoc(n); this.renderLoc();
     for (const f of FIELDS) this.cur[f] = n[f] ?? (f === 'title' || f === 'content' ? '' : null);
     this.q('.title-in').value = this.cur.title || ''; this.q('.ta').value = this.cur.content || '';
     this.q('[data-e=pin]').classList.toggle('on', this.pinned);
@@ -355,6 +362,21 @@ export class Editor {
     b.innerHTML = `${icon('folder', 13)}<span>${f ? esc(folderPath(this.app.folders, f.id)) : 'Chưa phân loại'}</span>`;
     b.classList.toggle('set', !!f);
   }
+  /* ---------- vị trí (tuỳ chọn) ---------- */
+  renderLoc() {
+    const w = this.q('.lbtnw'); if (!w) return;
+    w.innerHTML = hasLoc(this.loc)
+      ? `<span class="lchip"><button class="lview" data-e="locview" title="Xem bản đồ">${icon('mappin', 13)}<span>${esc(locLabel(this.loc))}</span></button><button class="ledit" data-e="loc" title="Sửa / bỏ vị trí" aria-label="Sửa vị trí">${icon('edit', 12)}</button></span>`
+      : `<button class="lbtn" data-e="loc" title="Thêm vị trí (tuỳ chọn)" aria-label="Thêm vị trí">${icon('mappin', 13)}<span>Vị trí</span></button>`;
+  }
+  editLoc() {
+    openLocationDialog(this.app, { loc: this.loc, noteTitle: String(this.cur.title || '').trim(), onSave: async loc => {
+      const prev = this.loc; this.loc = normLoc(loc); this.renderLoc();
+      if (!this.saved) { toast(hasLoc(this.loc) ? 'Vị trí sẽ được lưu cùng ghi chú' : 'Đã bỏ vị trí', { kind: 'info' }); return; }
+      try { await this.app.patchNote(this.saved.id, { ...this.loc }); this.saved = Object.assign({}, this.saved, this.loc); toast(hasLoc(this.loc) ? 'Đã lưu vị trí: ' + locLabel(this.loc) : 'Đã bỏ vị trí'); }
+      catch (e) { this.loc = prev; this.renderLoc(); toast('Không lưu được vị trí: ' + e.message, { kind: 'err' }); }
+    } });
+  }
   renderTags() {
     const r = this.q('.tagrow'); if (!r) return;
     const keep = r.querySelector('input')?.value || '';
@@ -371,9 +393,10 @@ export class Editor {
   }
   syncFolderTags(n) {
     const tags = n.tags || [], fid = n.folder_id || null;
+    const nl = normLoc(n); if (!sameLoc(nl, this.loc)) { this.loc = nl; this.renderLoc(); }
     if (fid !== this.folderId) { this.folderId = fid; this.renderFolder(); if (fid) { const s = this.q('.fsug'); if (s) s.hidden = true; } }
     if (tags.join('|') !== this.tags.join('|')) { this.tags = [...tags]; this.renderTags(); }
-    if (this.saved) this.saved = Object.assign({}, this.saved, { folder_id: fid, tags: [...tags] });
+    if (this.saved) this.saved = Object.assign({}, this.saved, { folder_id: fid, tags: [...tags], ...nl });
   }
 
   onRemote(n, pinOnly = false) {

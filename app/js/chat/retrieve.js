@@ -60,7 +60,8 @@ export function rankNotes(notes, query, { folders = [], now = Date.now(), limit 
     const title = fold(n.title || ''), body = fold([n.content, n.link_meta?.title, n.link_meta?.description].filter(Boolean).join(' '));
     const tags = (n.tags || []).map(fold), folder = fold(folderNameOf(folders, n.folder_id) + ' ' + (TYPE_WORDS[n.type] || ''));
     const urlw = fold(n.url || n.ai_source || '').replace(/https?:\/\/(www\.)?/, '');
-    const fields = [[title, 3], [tags.join(' '), 3], [folder, 2], [body, 1], [urlw, 1]].map(([s, w]) => ({ set: new Set(s.split(/[^a-z0-9]+/).filter(Boolean)), w, s }));
+    const place = fold(n.loc_name || ''); // tên vị trí (chỉ khi ghi chú có)
+    const fields = [[title, 3], [tags.join(' '), 3], [folder, 2], [place, 2], [body, 1], [urlw, 1]].map(([s, w]) => ({ set: new Set(s.split(/[^a-z0-9]+/).filter(Boolean)), w, s }));
     return { n, fields, title, body, tags };
   });
   const df = Object.fromEntries(qTok.map(t => [t, docs.filter(d => d.fields.some(f => f.set.has(t))).length]));
@@ -119,7 +120,7 @@ const fmtDay = ms => { const p = vnParts(ms); return `${String(p.d).padStart(2, 
 export function noteBlock(n, k, { folders = [], query = '', max = 900 } = {}) {
   const meta = [folderNameOf(folders, n.folder_id) && 'thư mục: ' + folderNameOf(folders, n.folder_id), (n.tags || []).length && 'nhãn: ' + n.tags.map(t => '#' + t).join(' '),
     n.created_at && 'tạo ' + fmtDay(Date.parse(n.created_at)), n.updated_at && n.updated_at !== n.created_at && 'sửa ' + fmtDay(Date.parse(n.updated_at)),
-    n.type === 'image' && 'ghi chú ảnh', n.type === 'link' && n.url && 'link: ' + n.url].filter(Boolean).join(' · ');
+    String(n.loc_name || '').trim() && 'vị trí: ' + String(n.loc_name).trim().slice(0, 120), n.type === 'image' && 'ghi chú ảnh', n.type === 'link' && n.url && 'link: ' + n.url].filter(Boolean).join(' · ');
   const body = [n.type === 'link' && n.link_meta?.title, n.content].filter(Boolean).join('\n');
   return `[#${k}] ${String(n.title || '').trim() || '(không tiêu đề)'}${meta ? '\n(' + meta + ')' : ''}\n${excerpt(body, query, max) || '(trống)'}`;
 }

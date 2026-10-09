@@ -9,7 +9,9 @@ import { formatDateTime, setLunarStamps } from './format.js';
 import { clockHTML, startClock, openCalendar } from './ui/calendar.js';
 import { loadReminders, renderReminders, openReminderDialog, startReminderTicker, remindersCount, activeReminderOf, syncPushOnEnter, refreshPushState } from './ui/reminders.js';
 import { loadAnnouncements, renderBanner } from './ui/announce.js';
-import { setReminderLookup, setFolderLookup } from './ui/notes.js';
+import { setReminderLookup, setFolderLookup, setShowLocation, locFilterChip } from './ui/notes.js';
+import { openMapPreview, openLocationDialog } from './ui/location.js';
+import { hasLoc, locLabel } from './geo.js';
 import { mountChat, unmountChat, toggle as toggleChat, chatNoteChanged } from './ui/chat.js';
 import { loadFolders, folderNavHTML, folderBarHTML, openFolderDialog, createTemplateFolders, openFolderManager, openMovePicker, openAiSort } from './ui/folders.js';
 import { NONE, folderPath } from './folders.js';
@@ -27,7 +29,7 @@ document.head.appendChild(Object.assign(document.createElement('style'), { id: '
 
 const app = window.__app = {
   data: null, ai: null, user: null, prefs: { ...DEFAULT_PREFS }, appSettings: { ...DEFAULT_APP_SETTINGS }, aiSettings: null,
-  notes: [], reminders: [], folders: [], filter: { nav: 'all', q: '', day: null, folder: null }, route: { name: 'notes', tab: '' }, selectedId: null,
+  notes: [], reminders: [], folders: [], filter: { nav: 'all', q: '', day: null, folder: null, loc: false }, route: { name: 'notes', tab: '' }, selectedId: null,
   paneEditor: null, modalEditor: null, sync: 'connecting', unsub: null, entered: false,
 };
 
@@ -135,7 +137,7 @@ async function enter(u) {
 }
 function leave() {
   app.unsub?.(); app.unsub = null; app.unsubRem?.(); app.unsubRem = null; app.unsubAnn?.(); app.unsubAnn = null; app.unsubFold?.(); app.unsubFold = null;
-  app.reminders = []; app.announcements = []; app.folders = []; app.filter.day = null; app.filter.folder = null;
+  app.reminders = []; app.announcements = []; app.folders = []; app.filter.day = null; app.filter.folder = null; app.filter.loc = false;
   document.getElementById('ralerts')?.remove();
   app.entered = false; app.user = null; app.notes = []; app.selectedId = null;
   app.paneEditor?.destroy(); app.paneEditor = null; app.modalEditor = null;
@@ -203,6 +205,7 @@ function themeBtnHTML() {
 }
 
 function renderShell() {
+  setShowLocation(app.prefs.showLocation);
   if (!app.entered) return;
   const s = app.appSettings, u = app.user, r = app.route;
   const view = app.effectiveView();
@@ -269,13 +272,15 @@ app.renderContent = renderContent;
 /** Chỉ vẽ lại vùng danh sách (giữ nguyên ô tìm kiếm, trình soạn). */
 function renderList() {
   if (!app.entered || app.route.name !== 'notes') return;
+  setShowLocation(app.prefs.showLocation);
   const nav = $('#nav'); if (nav) nav.innerHTML = navHTML();
   const view = isMobile() && app.effectiveView() === 'twopane' ? 'list' : app.effectiveView();
   if (view === 'twopane') {
     const sc = $('#lp-list'); if (!sc) return renderContent();
     sc.innerHTML = twoPaneListHTML(app); hydrateImages(sc, app);
     const head = $('#lp-head'); if (head) head.innerHTML = lpHeadHTML();
-    $$('.lp .tabs button').forEach(b => b.classList.toggle('on', b.dataset.nav === app.filter.nav || (app.filter.nav === 'pinned' && b.dataset.nav === 'all')));
+    $$('.lp .tabs button[data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === app.filter.nav || (app.filter.nav === 'pinned' && b.dataset.nav === 'all')));
+    const tb = $('.lp .tabs'); if (tb) { tb.querySelector('[data-locf]')?.remove(); tb.insertAdjacentHTML('beforeend', locFilterChip(app, 'tabl')); }
     return;
   }
   const mb = $('#mfbar'); if (mb) { mb.innerHTML = folderBarHTML(app); showActiveChip(); }
@@ -324,6 +329,19 @@ app.moveNotes = async (ids, folderId, { quiet = false } = {}) => {
   return ok;
 };
 /** Sửa nhẹ (nhãn…) không đổi thời gian "Sửa" */
+/** Xem vị trí của ghi chú (bản đồ nhỏ) — “Sửa vị trí” mở hộp chọn vị trí rồi lưu ngay */
+app.showLocation = (n) => openMapPreview(app, n, { onEdit: () => app.editLocation(n.id) });
+app.editLocation = (id) => {
+  const n = app.notes.find(x => x.id === id); if (!n) return;
+  openLocationDialog(app, { loc: n, noteTitle: n.title, onSave: async loc => {
+    try {
+      await app.patchNote(id, { ...loc });
+      const cur = app.notes.find(x => x.id === id);
+      for (const ed of [app.paneEditor, app.modalEditor]) if (ed?.noteId() === id && cur) ed.onRemote(cur, true);
+      toast(hasLoc(loc) ? 'Đã lưu vị trí: ' + locLabel(loc) : 'Đã bỏ vị trí');
+    } catch (e) { toast('Không lưu được vị trí: ' + e.message, { kind: 'err' }); }
+  } });
+};
 app.patchNote = async (id, patch) => {
   const n = app.notes.find(x => x.id === id); if (!n) return;
   upsertLocal(Object.assign({}, n, patch)); renderList();
@@ -544,6 +562,13 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('click', async e => {
   if (!app.entered) return;
+  const lo = e.target.closest('[data-locn],[data-locf]');
+  if (lo && $('#root').contains(lo)) {
+    e.preventDefault(); e.stopPropagation();
+    if (lo.dataset.locf !== undefined) { app.filter.loc = !app.filter.loc; if (isMobile()) renderShell(); else renderList(); return; }
+    const n = app.notes.find(x => x.id === lo.dataset.locn); if (n) app.showLocation(n);
+    return;
+  }
   const fe = e.target.closest('[data-folder],[data-fact],[data-fedit],[data-tagq]');
   if (fe && $('#root').contains(fe)) {
     e.preventDefault(); e.stopPropagation();
@@ -625,7 +650,7 @@ document.addEventListener('keydown', e => {
     if (ed) { e.preventDefault(); ed.save(); }
     return;
   }
-  if (e.key === 'Enter' && e.target.matches?.('.row[data-open],.it[data-open]')) { e.target.click(); }
+  if (e.key === 'Enter' && e.target.matches?.('.row[data-open],.it[data-open],.nloc[data-locn]')) { e.target.click(); }
 });
 // Dán ảnh (Ctrl+V) ở bất kỳ đâu ngoài ô nhập → tạo nhanh ghi chú ảnh.
 document.addEventListener('paste', e => {

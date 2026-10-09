@@ -26,7 +26,7 @@ export const NOTE_TYPES = {
   link: { label: 'Đường link', short: 'Link', icon: 'link' },
   ai: { label: 'AI tóm tắt', short: 'AI', icon: 'ai' },
 };
-export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto', showLunar: false, reminderSound: true, folderSuggest: true, chatContext: 'search' };
+export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto', showLunar: false, reminderSound: true, folderSuggest: true, chatContext: 'search', showLocation: true };
 // Thư mục mẫu mặc định (bản Supabase: bảng folder_templates, admin sửa trong Quản trị › Thư mục mẫu)
 export const DEFAULT_FOLDER_TEMPLATES = [
   { name: 'Công việc', color: 'sky', icon: '💼', sort: 1 }, { name: 'Cá nhân', color: 'rose', icon: '🏠', sort: 2 }, { name: 'Tài chính', color: 'butter', icon: '💰', sort: 3 },
