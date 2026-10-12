@@ -142,6 +142,8 @@ try {
   const content = S.db.notes[0].content;
   check(/— Thông tin liên quan \(tìm trên mạng .*\) —\n- Kỳ thi dự kiến diễn ra 11–12\/6\/2027 \[1\]\./.test(content) && content.endsWith('[3] Kỳ thi tốt nghiệp trung học phổ thông – Wikipedia — https://vi.wikipedia.org/wiki/K%E1%BB%B3_thi') && !content.includes('<img'), 'đã thêm vào CUỐI ghi chú kèm link nguồn (không có HTML)');
   await sleep(1200); check(S.calls.length === 3, 'thêm vào ghi chú không kích hoạt tự tìm lại');
+  await hide(p); await p.click(`${ED} [data-r=auto]`); await sleep(400); await p.click(`${ED} [data-r=auto]`); await sleep(1200);
+  check(S.calls.length === 3 && S.db.notes[0].auto_research === true, 'tắt rồi bật lại tự động sau khi thêm vào ghi chú → không tìm lại');
   // lỗi: hết hạn mức (không có Thử lại) và treo (có Thử lại → thành công)
   S.fail.push('limit'); await hide(p); await p.click(`${ED} [data-r=run]`); await p.waitForSelector(`${ED} .rp-err`);
   check(/hết 20 lượt tìm/.test(await p.textContent(`${ED} .rp-err`)) && await p.locator(`${ED} .rp-err [data-r=run]`).count() === 0, 'hết hạn mức → thông báo tiếng Việt, không có “Thử lại”');

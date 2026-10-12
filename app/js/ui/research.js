@@ -106,7 +106,7 @@ export function mountResearch(app, ed) {
         toast(on ? 'Đã bật tự động tìm trên mạng cho ghi chú này' : 'Đã tắt tự động tìm trên mạng');
         if (on && longEnough(ed.saved)) {
           const h = await hashText(researchText(ed.saved));
-          if (!s.res || s.res.content_hash !== h) runResearch(app, id);
+          if ((!s.res || s.res.content_hash !== h) && h !== s.skipHash) runResearch(app, id);
         }
       } catch (err) { toast('Không đổi được: ' + err.message, { kind: 'err' }); }
     } else if (k === 'dismiss') {
