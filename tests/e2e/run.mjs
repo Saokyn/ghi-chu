@@ -121,7 +121,8 @@ try {
   S('Ghi chú hình ảnh (tải file lên)');
   await page.click('[data-act=add]:visible >> nth=0');
   await page.click('.mi[data-type=image]');
-  await page.setInputFiles('.modal [data-file]', new URL('../../out/2-phuong-an-B-luoi-the.png', import.meta.url).pathname);
+  { const big = new URL('../../out/2-phuong-an-B-luoi-the.png', import.meta.url).pathname; // ảnh mẫu (out/ không có trong git) → dùng ảnh trong repo nếu thiếu
+    await page.setInputFiles('.modal [data-file]', (await import('node:fs')).existsSync(big) ? big : new URL('../../app/img/logo/icon-512.png', import.meta.url).pathname); }
   await page.waitForSelector('.modal [data-save]:not([disabled])', { timeout: 5000 });
   await page.fill('.modal [data-title]', 'Ảnh chụp bản thiết kế lưới thẻ');
   await page.click('.modal [data-save]');

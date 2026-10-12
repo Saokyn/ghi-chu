@@ -13,6 +13,7 @@ import { folderPath, parseTags, normTag } from '../folders.js';
 import { openMovePicker, suggestForNew } from './folders.js';
 import { normLoc, hasLoc, sameLoc, locLabel } from '../geo.js';
 import { openLocationDialog, openMapPreview } from './location.js';
+import { mountResearch, noteSaved as researchNoteSaved } from './research.js';
 
 const FIELDS = ['title', 'content', 'url', 'link_meta', 'ai_source', 'image_path'];
 const PLACEHOLDER = {
@@ -83,7 +84,7 @@ export class Editor {
     if (!this.ro) { this.ro = new ResizeObserver(() => this.queueLines()); }
     this.ro.observe(this.el.querySelector('.tawrap'));
   }
-  destroy() { if (this._outside) document.removeEventListener('pointerdown', this._outside, true); this.ro?.disconnect(); cancelAnimationFrame(this.raf); this.el.remove(); this.destroyed = true; }
+  destroy() { this.research?.destroy(); if (this._outside) document.removeEventListener('pointerdown', this._outside, true); this.ro?.disconnect(); cancelAnimationFrame(this.raf); this.el.remove(); this.destroyed = true; }
   // Không giật con trỏ nếu người dùng đã kịp bấm vào ô khác trong trình soạn (ví dụ ô nhãn) trước khi hẹn giờ chạy
   userFocused() { const a = document.activeElement; return !!a && a !== document.body && this.el.contains(a) && a.matches('input,textarea,select,[contenteditable]'); }
   focusTitle() { setTimeout(() => { if (!this.userFocused()) this.q('.title-in')?.focus(); }, 30); }
@@ -116,6 +117,7 @@ export class Editor {
         <div class="fsug" hidden></div>
         <div class="tsec"></div>
         <div class="lines"><div class="gut" aria-hidden="true"></div><div class="tawrap"><textarea class="ta" spellcheck="false" aria-label="Nội dung"></textarea><div class="mirror" aria-hidden="true"></div></div></div>
+        <div class="rsec" hidden></div>
       </div></div>
       <div class="sb"><span class="w st-un"></span><span class="w st-sync"></span><span class="st-wc"></span>
         <div class="legend"><span><i style="background:var(--lt-old)"></i>Lưu trước đó</span><span><i style="background:var(--lt-new)"></i>Lần lưu mới nhất</span><span><i style="background:var(--lt-un)"></i>Chưa lưu</span></div></div>`;
@@ -139,6 +141,7 @@ export class Editor {
     this.q('.fsug').addEventListener('fsg-moved', e => { this.folderId = e.detail; this.renderFolder(); });
     this.el.addEventListener('keydown', e => { if (e.key === 'Escape' && this.mode === 'modal') { e.stopPropagation(); this.onRequestClose?.(); } });
     this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.applyColor(); this.renderFolder(); this.renderTags(); this.renderLoc();
+    this.research = mountResearch(this.app, this);
   }
 
   renderMeta() {
@@ -324,7 +327,7 @@ export class Editor {
       d.line_times = computeLineTimes(this.baseLineTimes(), d.content || '', now);
       d.updated_at = now;
       let note;
-      if (!this.saved) note = await this.app.createNote(Object.assign(d, this.draftId ? { id: this.draftId } : {}, { type: this.type, pinned: this.pinned, color: this.color, folder_id: this.folderId, tags: this.tags, ...(hasLoc(this.loc) ? this.loc : {}), created_at: now }));
+      if (!this.saved) note = await this.app.createNote(Object.assign(d, this.draftId ? { id: this.draftId } : {}, { type: this.type, pinned: this.pinned, color: this.color, folder_id: this.folderId, tags: this.tags, ...(hasLoc(this.loc) ? this.loc : {}), auto_research: !!this.app.prefs.autoResearch, created_at: now }));
       else note = await this.app.updateNote(this.saved.id, d);
       if (oldImage && oldImage !== note.image_path && !/^(data:|img\/)/.test(oldImage)) this.app.data.images.remove(oldImage).catch(() => {});
       const wasDraft = !this.saved;
@@ -334,6 +337,8 @@ export class Editor {
       if (wasDraft && this.mode === 'pane') { this.app.selectedId = note.id; this.app.renderList(); }
       if (wasDraft && !note.folder_id) suggestForNew(this.app, note, this.q('.fsug'));
       if (wasDraft) this.app.chatNoteChanged?.();
+      if (wasDraft) this.research?.refresh(); else this.research?.checkStale();
+      researchNoteSaved(this.app, note);
       toast('Đã lưu · ' + formatDateTime(now));
     } catch (err) { toast('Không lưu được: ' + err.message, { kind: 'err', ms: 6000 }); }
     finally { this.saving = false; btn.disabled = false; }
@@ -347,6 +352,7 @@ export class Editor {
     this.q('.title-in').value = this.cur.title || ''; this.q('.ta').value = this.cur.content || '';
     this.q('[data-e=pin]').classList.toggle('on', this.pinned);
     this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.queueLines();
+    this.research?.draw();
   }
   /** Áp dụng nội dung mới (đã được người dùng xem trước & xác nhận) rồi lưu như bình thường — giữ thời gian theo dòng. */
   async applyContent(text) {

@@ -109,7 +109,7 @@ async function enter(u) {
     app.user = u;
     app.prefs = Object.assign({}, DEFAULT_PREFS, await app.data.prefs.get());
     app.aiSettings = await app.data.ai.get();
-    await app.loadSharedAi();
+    await Promise.all([app.loadSharedAi(), app.loadWebResearch()]);
     app.notes = await app.data.notes.list();
     await Promise.all([loadReminders(app), loadAnnouncements(app), loadFolders(app)]);
     setLunarStamps(app.prefs.showLunar);
@@ -521,6 +521,7 @@ app.savePrefs = (patch) => {
 };
 // AI dùng chung của quản trị viên (chỉ tên nhà cung cấp + model; key ở máy chủ)
 app.loadSharedAi = async () => { try { app.sharedAi = app.data.sharedAi ? await app.data.sharedAi.get() : null; } catch (e) { console.warn('get_shared_ai', e); app.sharedAi = null; } return app.sharedAi; };
+app.loadWebResearch = async () => { try { app.webResearch = app.data.research?.available ? await app.data.research.config() : null; } catch (e) { console.warn('get_web_research', e); app.webResearch = null; } };
 app.aiEff = () => effectiveAi(app.aiSettings, app.sharedAi);
 app.saveAi = async (s) => { await app.data.ai.save(s); app.aiSettings = s; };
 

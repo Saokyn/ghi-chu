@@ -112,6 +112,15 @@ supabase secrets set ALLOWED_ORIGIN=https://<tên-github>.github.io --project-re
 `SUPABASE_URL` và `SUPABASE_ANON_KEY` được Supabase tự cung cấp cho function. Không đặt `ALLOW_FAKE_IP_DNS` khi deploy (biến này chỉ để chạy thử ở máy có DNS giả lập).
 Chưa deploy thì: Grok/Gemini/Groq/OpenRouter… vẫn gọi thẳng từ trình duyệt được; Intern AI và Cloudflare (chặn CORS) cần function này; đọc nội dung link sẽ báo lỗi thân thiện và cho nhập tay.
 
+### Tìm thông tin liên quan trên mạng (action `research`)
+- Bảng “Thông tin liên quan” dưới mỗi ghi chú: nút **Tìm trên mạng** + công tắc **Tự động tìm trên mạng** (mặc định tắt; tự tìm ~8 giây sau lần lưu cuối, chỉ khi nội dung khác lần tìm trước, tối đa 1 lần/2 phút/ghi chú).
+- Máy chủ đọc ghi chú (chỉ chữ) → AI dùng chung chọn 1–3 từ khoá → tìm → đọc tối đa 4 trang (chặn SSRF) → AI tóm tắt tiếng Việt, trích dẫn `[n]` chỉ trỏ tới trang đã đọc (số lạ bị bỏ) → lưu `note_research` (chỉ Edge Function ghi; chủ ghi chú đọc/xoá).
+- Mỗi lần tìm: 1 lượt tìm/ngày (mặc định 20) + 2 lượt AI dùng chung. Cần AI dùng chung đang bật.
+- **Quản trị → AI dùng chung → Tìm thông tin liên quan trên mạng**: bật cho người dùng (mặc định chỉ admin), chọn công cụ:
+  - *Miễn phí* (mặc định): DuckDuckGo (bản lite) → nếu bị chặn/không có kết quả thì Wikipedia (vi → en). Không cần key.
+  - *Tavily* / *Brave Search* / *Serper (Google)*: cần API key của dịch vụ đó; *SearXNG*: địa chỉ https của máy chủ SearXNG (bật định dạng JSON), key tuỳ chọn.
+  Key lưu ở bảng `web_research` (không policy → chỉ service_role/Edge Function đọc); giao diện chỉ hiện 4 ký tự cuối.
+
 ## 6. Deploy GitHub Pages (sau này)
 
 Mọi đường dẫn trong app đều **tương đối**, nên chạy được ở `https://<tên-github>.github.io/<tên-repo>/`.

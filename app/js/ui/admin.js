@@ -170,7 +170,8 @@ async function usersPage(el, app) {
 // Admin cài một nhà cung cấp + model + key cho mọi người. Key được gửi thẳng vào hàm admin_set_shared_ai
 // và lưu ở bảng shared_ai (không ai đọc lại được qua API — chỉ Edge Function ai-proxy dùng). Ở đây chỉ hiện 4 ký tự cuối.
 async function sharedAiPage(el, app) {
-  el.innerHTML = `<div class="page" style="max-width:980px"><div class="ph"><h1>AI dùng chung</h1><span class="adm">${icon('shield', 12, 2.6)}ADMIN</span></div><div id="sa"><span class="spin"></span></div></div>`;
+  el.innerHTML = `<div class="page" style="max-width:980px"><div class="ph"><h1>AI dùng chung</h1><span class="adm">${icon('shield', 12, 2.6)}ADMIN</span></div><div id="sa"><span class="spin"></span></div><div id="wr"></div></div>`;
+  if (app.data.research?.available) webResearchAdmin(el.querySelector('#wr'), app);
   const box = el.querySelector('#sa');
   let sh; try { sh = await app.data.sharedAi.get(); } catch (e) { box.innerHTML = `<div class="callout warn">${icon('alert', 16)}<div>Không tải được cấu hình: ${esc(e.message)}</div></div>`; return; }
   const f = { provider: sh.provider || 'discovery', model: sh.model || '', base_url: sh.base_url || '', account_id: sh.account_id || '', api_key: '',
@@ -240,5 +241,53 @@ async function sharedAiPage(el, app) {
       }
     } catch (err) { if (a === 'test') testMsg = { ok: false, msg: err.message }; else toast(err.message, { kind: 'err', ms: 7000 }); }
     busy = ''; draw();
+  };
+}
+
+// Tìm thông tin liên quan trên mạng (pha 6): bật cho người dùng, chọn công cụ tìm kiếm, key (chỉ máy chủ dùng), hạn mức/ngày.
+const WR_PROVIDERS = [
+  ['auto', 'Miễn phí: DuckDuckGo → Wikipedia (không cần key)', ''],
+  ['tavily', 'Tavily (cần API key — tavily.com)', 'tvly-…'],
+  ['brave', 'Brave Search API (cần key — api-dashboard.search.brave.com)', 'BSA…'],
+  ['serper', 'Serper.dev — kết quả Google (cần key)', 'key của serper.dev'],
+  ['searxng', 'SearXNG tự cài (cần địa chỉ; key tuỳ chọn)', 'tuỳ chọn'],
+];
+async function webResearchAdmin(box, app) {
+  let c; try { c = await app.data.research.config(); } catch (e) { box.innerHTML = `<div class="callout warn">${icon('alert', 16)}<div>Không tải được cấu hình tìm trên mạng: ${esc(e.message)}</div></div>`; return; }
+  const f = { enabled: !!c.enabled, provider: c.provider || 'auto', base_url: c.base_url || '', api_key: '', daily_limit: c.daily_limit ?? 20 };
+  let busy = false;
+  const draw = () => {
+    const P = WR_PROVIDERS.find(p => p[0] === f.provider) || WR_PROVIDERS[0];
+    box.innerHTML = `<div class="card" data-wr-admin>
+      <div class="ch"><div><h3>${icon('globe', 17)}Tìm thông tin liên quan trên mạng</h3><p>Người dùng bấm “Tìm trên mạng” (hoặc bật tự động) trong ghi chú → AI dùng chung chọn từ khoá, máy chủ tìm & đọc trang, rồi tóm tắt tiếng Việt có trích dẫn nguồn. Mỗi lần tìm = 1 lượt tìm + 2 lượt AI dùng chung. Quản trị viên luôn dùng được.</p></div>
+        ${c.enabled ? `<span class="bdg ok">${icon('check', 12, 3)}Đang bật cho người dùng</span>` : '<span class="bdg mut">Chỉ quản trị viên</span>'}</div>
+      <div class="tr" style="border-top:0;padding-top:0"><div><b>Bật cho mọi người dùng</b><small>Tắt: chỉ quản trị viên thấy bảng “Thông tin liên quan”.</small></div><button class="sw ${f.enabled ? 'on' : ''}" data-w="enabled" role="switch" aria-checked="${f.enabled}" aria-label="Bật tìm trên mạng cho người dùng"></button></div>
+      <label class="field"><span class="lbl">Công cụ tìm kiếm</span><select class="inp" data-wf="provider">${WR_PROVIDERS.map(([id, name]) => `<option value="${id}" ${id === f.provider ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select>
+        <div class="help">${f.provider === 'auto' ? 'Không cần key. DuckDuckGo đôi khi tạm chặn máy chủ — khi đó tự chuyển sang Wikipedia (ít nguồn tin tức hơn). Muốn ổn định hơn: dùng Tavily/Brave/Serper với key của bạn.' : 'Key chỉ lưu trên máy chủ (bảng không ai đọc được qua API), chỉ Edge Function dùng.'}</div></label>
+      ${f.provider === 'searxng' ? `<label class="field"><span class="lbl">Địa chỉ SearXNG (https://…, đã bật định dạng JSON)</span><input class="inp mono" data-wf="base_url" value="${esc(f.base_url)}" placeholder="https://searx.example.org" spellcheck="false"></label>` : ''}
+      ${f.provider !== 'auto' ? `<label class="field"><span class="lbl">API key</span><div class="inpw">${icon('lock', 16)}<input class="inp mono" data-wf="api_key" type="password" value="" autocomplete="new-password" spellcheck="false" placeholder="${c.has_key ? 'Đã lưu key ••••' + esc(c.key_last4 || '') + ' — để trống để giữ nguyên' : esc(P[2])}"></div>
+        ${c.has_key ? '<div class="help"><button class="lk" data-w="clearkey">Xoá key</button></div>' : ''}</label>` : ''}
+      <label class="field" style="max-width:280px"><span class="lbl">Số lần tìm mỗi người / ngày</span><input class="inp" type="number" min="0" max="1000" data-wf="daily_limit" value="${f.daily_limit}"></label>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px"><button class="btn pri" data-w="save" ${busy ? 'disabled' : ''}>${busy ? '<span class="spin" style="width:14px;height:14px"></span>' : icon('save', 16)}Lưu</button>
+        ${c.updated_at ? `<span class="help">Cập nhật ${formatDateTime(c.updated_at)}</span>` : ''}</div></div>`;
+  };
+  draw();
+  box.oninput = e => { const k = e.target.dataset.wf; if (!k) return; f[k] = e.target.type === 'number' ? Number(e.target.value) : e.target.value.trim(); if (k === 'provider') draw(); };
+  box.onclick = async e => {
+    const a = e.target.closest('[data-w]')?.dataset.w; if (!a) return;
+    if (a === 'enabled') { f.enabled = !f.enabled; draw(); return; }
+    try {
+      if (a === 'save') {
+        if (f.provider !== 'auto' && f.provider !== 'searxng' && !f.api_key && !c.has_key) { toast('Công cụ này cần API key', { kind: 'err' }); return; }
+        if (f.provider === 'searxng' && !/^https:\/\//.test(f.base_url)) { toast('Nhập địa chỉ SearXNG dạng https://…', { kind: 'err' }); return; }
+        busy = true; draw();
+        const cfg = { enabled: f.enabled, provider: f.provider, base_url: f.base_url, daily_limit: f.daily_limit }; if (f.api_key) cfg.api_key = f.api_key;
+        c = await app.data.research.adminSave(cfg); f.api_key = ''; await app.loadWebResearch(); toast('Đã lưu cấu hình tìm trên mạng');
+      } else if (a === 'clearkey') {
+        if (!(await confirmDialog('Xoá API key của công cụ tìm kiếm?', { okText: 'Xoá key', danger: true }))) return;
+        c = await app.data.research.adminSave({ clear_key: true }); toast('Đã xoá key');
+      }
+    } catch (err) { toast(err.message, { kind: 'err', ms: 7000 }); }
+    busy = false; draw();
   };
 }

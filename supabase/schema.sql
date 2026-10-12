@@ -786,4 +786,117 @@ do $$ begin
     and (loc_acc is null or (loc_lat is not null and loc_acc >= 0 and loc_acc <= 1000000)));
 exception when duplicate_object then null; end $$;
 
+-- ---------------------------------------------------------------------
+-- Pha 6: TÌM THÔNG TIN LIÊN QUAN TRÊN MẠNG cho ghi chú (có nguồn)
+--   * notes.auto_research: bật/tắt tự động tìm cho từng ghi chú (mặc định TẮT).
+--   * web_research: 1 dòng cấu hình do admin đặt (bật cho người dùng, nhà cung cấp tìm kiếm, key, hạn mức/ngày).
+--     KHÔNG có policy → chỉ service_role (Edge Function ai-proxy) đọc được key. Người dùng xem qua get_web_research().
+--   * web_research_usage: đếm lượt tìm theo ngày (chỉ service_role).
+--   * note_research: kết quả đã lưu cho mỗi ghi chú. Chủ ghi chú chỉ ĐỌC/XOÁ được; chỉ Edge Function ghi
+--     (để nguồn trích dẫn luôn là trang đã thực sự đọc trên máy chủ).
+-- ---------------------------------------------------------------------
+alter table public.notes add column if not exists auto_research boolean not null default false;
+
+create table if not exists public.web_research (
+  id          int primary key default 1 check (id = 1),
+  enabled     boolean not null default false,          -- cho người dùng thường (admin luôn dùng được)
+  provider    text not null default 'auto' check (provider in ('auto', 'tavily', 'brave', 'serper', 'searxng')),
+  base_url    text,                                    -- SearXNG
+  api_key     text,
+  daily_limit int not null default 20 check (daily_limit between 0 and 1000),
+  updated_at  timestamptz not null default now(),
+  updated_by  uuid
+);
+insert into public.web_research (id) values (1) on conflict (id) do nothing;
+alter table public.web_research enable row level security;          -- không tạo policy nào
+revoke all on public.web_research from public, anon, authenticated;
+grant select on public.web_research to service_role;
+
+create table if not exists public.web_research_usage (
+  id         bigint generated always as identity primary key,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists web_research_usage_user_time on public.web_research_usage (user_id, created_at desc);
+alter table public.web_research_usage enable row level security;    -- không tạo policy nào
+revoke all on public.web_research_usage from public, anon, authenticated;
+grant select, insert, delete on public.web_research_usage to service_role;
+
+create table if not exists public.note_research (
+  note_id      uuid primary key references public.notes(id) on delete cascade,
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  content_hash text not null,
+  queries      jsonb not null default '[]'::jsonb,
+  summary      text not null default '',
+  sources      jsonb not null default '[]'::jsonb,
+  provider     text,
+  model        text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  constraint note_research_size check (length(summary) <= 8000 and jsonb_typeof(sources) = 'array' and jsonb_array_length(sources) <= 10
+                                       and jsonb_typeof(queries) = 'array' and jsonb_array_length(queries) <= 5)
+);
+create index if not exists note_research_user on public.note_research (user_id);
+alter table public.note_research enable row level security;
+drop policy if exists note_research_select on public.note_research;
+create policy note_research_select on public.note_research for select to authenticated using (user_id = auth.uid());
+drop policy if exists note_research_delete on public.note_research;
+create policy note_research_delete on public.note_research for delete to authenticated using (user_id = auth.uid());
+revoke all on public.note_research from public, anon, authenticated;
+grant select, delete on public.note_research to authenticated;
+grant select, insert, update, delete on public.note_research to service_role;
+
+-- Thông tin an toàn cho người dùng đã đăng nhập (không bao giờ trả về key)
+create or replace function public.get_web_research()
+returns json language plpgsql stable security definer set search_path = public as $$
+declare c public.web_research; adm boolean; used int;
+begin
+  if auth.uid() is null then raise exception 'Cần đăng nhập' using errcode = '42501'; end if;
+  select * into c from public.web_research where id = 1;
+  adm := public.is_admin();
+  select count(*) into used from public.web_research_usage where user_id = auth.uid() and created_at > now() - interval '1 day';
+  return json_build_object('available', adm or coalesce(c.enabled, false), 'provider', c.provider,
+    'daily_limit', c.daily_limit, 'used_day', used, 'is_admin', adm)::jsonb
+    || (case when adm then jsonb_build_object('enabled', c.enabled, 'base_url', c.base_url, 'has_key', c.api_key is not null,
+          'key_last4', case when c.api_key is null then null else right(c.api_key, 4) end, 'updated_at', c.updated_at) else '{}'::jsonb end);
+end $$;
+
+-- Admin lưu cấu hình. api_key: chỉ ghi khi gửi chuỗi khác rỗng; clear_key = true để xoá.
+create or replace function public.admin_set_web_research(cfg jsonb)
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin mới cài được tính năng tìm trên mạng' using errcode = '42501'; end if;
+  update public.web_research set
+    enabled     = coalesce((cfg->>'enabled')::boolean, enabled),
+    provider    = coalesce(nullif(cfg->>'provider', ''), provider),
+    base_url    = case when cfg ? 'base_url' then nullif(left(cfg->>'base_url', 300), '') else base_url end,
+    api_key     = case when coalesce((cfg->>'clear_key')::boolean, false) then null
+                       when nullif(cfg->>'api_key', '') is not null then left(cfg->>'api_key', 500) else api_key end,
+    daily_limit = coalesce((cfg->>'daily_limit')::int, daily_limit),
+    updated_at = now(), updated_by = auth.uid()
+  where id = 1;
+  return public.get_web_research();
+end $$;
+
+-- Chỉ Edge Function (service_role) gọi: kiểm tra + ghi nhận một lượt tìm.
+create or replace function public.web_research_take(uid uuid)
+returns json language plpgsql security definer set search_path = public as $$
+declare c public.web_research; d int;
+begin
+  perform pg_advisory_xact_lock(hashtext('web_research:' || uid::text));
+  select * into c from public.web_research where id = 1;
+  select count(*) into d from public.web_research_usage where user_id = uid and created_at > now() - interval '1 day';
+  if d >= c.daily_limit then return json_build_object('ok', false, 'limit', c.daily_limit); end if;
+  insert into public.web_research_usage (user_id) values (uid);
+  delete from public.web_research_usage where user_id = uid and created_at < now() - interval '2 days';
+  return json_build_object('ok', true, 'used_day', d + 1, 'limit', c.daily_limit);
+end $$;
+
+revoke all on function public.get_web_research() from public, anon;
+revoke all on function public.admin_set_web_research(jsonb) from public, anon;
+revoke all on function public.web_research_take(uuid) from public, anon, authenticated;
+grant execute on function public.get_web_research() to authenticated;
+grant execute on function public.admin_set_web_research(jsonb) to authenticated;
+grant execute on function public.web_research_take(uuid) to service_role;
+
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

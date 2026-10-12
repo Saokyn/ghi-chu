@@ -8,11 +8,13 @@
 //    { action: 'chat',   provider, base_url, account_id?, api_key?, body }   → POST {base_url}/chat/completions
 //    { action: 'models', provider, base_url, account_id?, api_key? }         → GET  {base_url}/models (Cloudflare: /ai/models/search)
 //    { action: 'fetch_url', url }                                           → đọc chữ dễ đọc + og meta của trang
+//    { action: 'research', note_id }   → tìm thông tin liên quan trên mạng cho ghi chú (AI dùng chung + công cụ tìm kiếm), lưu note_research
 //  Luôn trả HTTP 200 dạng { status, data } (status = mã HTTP của nhà cung cấp),
 //  trừ lỗi xác thực / yêu cầu sai (401/400) trả { error }.
 //  Nếu không gửi api_key, hàm dùng key người dùng đã đồng bộ trong user_ai_settings (RLS: chỉ chủ sở hữu).
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import * as RS from '../_shared/research.js';
 
 // Nguồn được phép gọi (CORS): ALLOWED_ORIGINS="https://a.github.io,http://127.0.0.1:5180" (hoặc ALLOWED_ORIGIN cũ).
 // Không đặt → cho mọi nguồn ("*"). Yêu cầu từ trình duyệt có Origin khác danh sách bị từ chối 403.
@@ -202,7 +204,9 @@ async function handle(req: Request): Promise<Response> {
       return json({ status: 200, data });
     }
 
-    if (action !== 'chat' && action !== 'models') throw new HttpError(400, 'action không hợp lệ (chat | models | fetch_url)');
+    if (action === 'research') return await research(sb, u.user.id, String(p.note_id || ''));
+
+    if (action !== 'chat' && action !== 'models') throw new HttpError(400, 'action không hợp lệ (chat | models | fetch_url | research)');
 
     // 3) Quyền: người dùng chưa được admin cho "tự chọn AI" thì LUÔN dùng AI chung (bỏ qua key/provider/base_url họ gửi)
     const svc = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
@@ -279,4 +283,146 @@ async function handle(req: Request): Promise<Response> {
     console.error('ai-proxy', e);
     return json({ status: 502, data: { error: 'Lỗi proxy: ' + (e as Error).message } });
   }
+}
+
+// =====================================================================
+//  Tìm thông tin liên quan trên mạng cho một ghi chú (pha 6)
+//  1) đọc ghi chú bằng quyền của người dùng (RLS) — chỉ chữ, không ảnh
+//  2) AI dùng chung đề xuất 1–3 truy vấn  3) tìm (DuckDuckGo/Wikipedia miễn phí hoặc API admin cài)
+//  4) đọc các trang đầu (chặn SSRF)  5) AI tóm tắt tiếng Việt, chỉ trích dẫn [n] của trang đã đọc
+//  6) lưu note_research (chỉ service_role ghi được). Mỗi lần: 1 lượt tìm/ngày + 2 lượt AI dùng chung.
+// =====================================================================
+const RS_AI_MS = 30_000, RS_AI_RETRY_MS = 35_000, RS_SEARCH_MS = 10_000, RS_PAGE_MS = 8_000, RS_PAGE_BYTES = 1_500_000, RS_MAX_TOKENS = 2000;
+const todayVN = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+const svcClient = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+
+async function research(sb: any, uid: string, noteId: string): Promise<Response> {
+  if (!/^[0-9a-f-]{36}$/i.test(noteId)) throw new HttpError(400, 'note_id không hợp lệ');
+  const svc = svcClient();
+  const [{ data: cfg }, { data: shared }, { data: prof }, { data: note }] = await Promise.all([
+    svc.from('web_research').select('*').eq('id', 1).maybeSingle(),
+    svc.from('shared_ai').select('*').eq('id', 1).maybeSingle(),
+    svc.from('profiles').select('role').eq('id', uid).maybeSingle(),
+    sb.from('notes').select('id,type,title,content,url').eq('id', noteId).maybeSingle(), // RLS: chỉ ghi chú của chính mình
+  ]);
+  if (!note) return friendly(404, 'Không tìm thấy ghi chú (hoặc ghi chú chưa được lưu).', 'no_note');
+  if (!(prof?.role === 'admin' || cfg?.enabled)) return friendly(403, 'Quản trị viên chưa bật tính năng “Tìm trên mạng” cho tài khoản của bạn.', 'research_off');
+  if (!shared?.enabled || !shared.provider || !shared.model || !shared.api_key) return friendly(503, 'Cần AI dùng chung để tìm trên mạng — quản trị viên chưa bật AI dùng chung.', 'shared_off');
+  const provider = String(cfg?.provider || 'auto');
+  if (provider !== 'auto' && provider !== 'searxng' && !cfg?.api_key) return friendly(503, 'Quản trị viên chưa nhập API key cho công cụ tìm kiếm.', 'no_search_key');
+  if (provider === 'searxng' && !cfg?.base_url) return friendly(503, 'Quản trị viên chưa nhập địa chỉ SearXNG.', 'no_search_key');
+  const text = RS.researchText(note);
+  if (text.replace(/\s/g, '').length < RS.MIN_TEXT) return friendly(400, 'Ghi chú quá ngắn để tìm — hãy viết thêm vài chữ về chủ đề.', 'too_short');
+  const hash = await RS.hashText(text);
+
+  const { data: take, error: takeErr } = await svc.rpc('web_research_take', { uid });
+  if (takeErr) throw new Error('Không kiểm tra được hạn mức tìm: ' + takeErr.message);
+  if (!take?.ok) return friendly(429, `Bạn đã dùng hết ${take?.limit ?? 0} lượt tìm trên mạng hôm nay. Hãy thử lại vào ngày mai.`, 'research_limit');
+
+  const secrets = [shared.api_key, cfg?.api_key].filter((k: string) => k && k.length >= 8);
+  const scrub = (m: string) => secrets.reduce((a: string, k: string) => a.split(k).join('***'), String(m || ''));
+  try {
+    const today = todayVN();
+    // 2) truy vấn
+    const qOut = await sharedChat(svc, uid, shared, RS.queryMessages(text, today), 400);
+    const queries = RS.parseQueries(qOut, text);
+    // 3) tìm
+    const lists: any[][] = []; let used = '';
+    for (const q of queries) { const r = await searchOnce(provider, cfg, q); lists.push(r.results); used = used || (r.results.length ? r.provider : ''); }
+    const found = RS.mergeResults(lists, RS.MAX_SOURCES);
+    if (!found.length) {
+      const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
+      return json({ status: 200, data: { ...row, empty: true } });
+    }
+    // 4) đọc trang (song song, tối đa MAX_FETCH)
+    const pages = await Promise.all(found.slice(0, RS.MAX_FETCH).map(async (r: any) => {
+      try {
+        const res = await safeFetch(r.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GhiChuBot/1.0; +https://saokyn.github.io/ghi-chu/)', Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9', 'Accept-Language': 'vi,en;q=0.8' } }, RS_PAGE_MS);
+        const ct = res.headers.get('content-type') || '';
+        if (!res.ok || !/text\/html|xhtml|text\/plain/i.test(ct)) { await res.body?.cancel(); return null; }
+        const html = await readLimited(res, RS_PAGE_BYTES);
+        const ex = /text\/plain/i.test(ct) ? { title: '', text: html } : extractReadable(html, res.url || r.url);
+        return { title: ex.title, text: ex.text, date: /text\/plain/i.test(ct) ? null : RS.pageDate(html) };
+      } catch { return null; }
+    }));
+    // Nguồn = kết quả có nội dung thật (trang đọc được, hoặc đoạn trích của công cụ tìm kiếm). Không có nội dung → bỏ.
+    const sources = found.map((r: any, i: number) => {
+      const pg = i < pages.length ? pages[i] : null; const okPage = !!(pg && pg.text && pg.text.length >= 200);
+      const excerpt = okPage ? RS.excerptFor(pg!.text, queries) : r.snippet;
+      return { title: (r.title || pg?.title || RS.domainOf(r.url)).slice(0, 200), url: r.url, domain: RS.domainOf(r.url), date: pg?.date || r.date || null, fetched: okPage, excerpt, snippet: r.snippet };
+    }).filter((s: any) => s.excerpt && s.excerpt.length >= 40).slice(0, RS.MAX_SOURCES);
+    if (!sources.length) {
+      const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
+      return json({ status: 200, data: { ...row, empty: true } });
+    }
+    // 5) tóm tắt có trích dẫn
+    const sOut = await sharedChat(svc, uid, shared, RS.summaryMessages(text, sources, today), RS_MAX_TOKENS);
+    const { summary, cited } = RS.cleanSummary(sOut, sources.length);
+    if (!summary) throw new HttpError(502, 'AI không trả về bản tóm tắt — hãy thử lại.');
+    const stored = sources.map((s: any, i: number) => ({ n: i + 1, title: s.title, url: s.url, domain: s.domain, date: s.date, fetched: s.fetched, cited: cited.includes(i + 1) }));
+    const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary, sources: stored, provider: used || provider, model: shared.model });
+    return json({ status: 200, data: row });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    const msg = scrub((e as Error).message);
+    if (e instanceof HttpError) return friendly(e.status, msg, 'research_error');
+    console.error('research', msg);
+    return friendly(502, 'Tìm trên mạng bị lỗi: ' + msg, 'research_error');
+  }
+}
+async function saveResearch(svc: any, row: Record<string, unknown>) {
+  const { data, error } = await svc.from('note_research').upsert({ ...row, updated_at: new Date().toISOString() }, { onConflict: 'note_id' }).select('*').single();
+  if (error) throw new Error('Không lưu được kết quả: ' + error.message);
+  return data;
+}
+/** Gọi AI dùng chung (không stream) — mỗi lần tính 1 lượt. Treo (Intern/Discovery) → gửi lại 1 lần; trả rỗng (hết token suy nghĩ) → hỏi lại 1 lần. */
+async function sharedChat(svc: any, uid: string, shared: any, messages: any[], maxTokens: number): Promise<string> {
+  const provider = shared.provider;
+  let base = String(shared.base_url || DEFAULT_BASE[provider] || '').replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
+  if (base.includes('{ACCOUNT_ID}') && shared.account_id) base = base.split('{ACCOUNT_ID}').join(encodeURIComponent(shared.account_id));
+  const one = async (msgs: any[]) => {
+    const { data: take, error } = await svc.rpc('shared_ai_take', { uid });
+    if (error) throw new Error('Không kiểm tra được hạn mức AI: ' + error.message);
+    if (!take?.ok) throw friendly(429, take?.reason === 'hour' ? `Bạn đã dùng hết ${take.limit} lượt AI dùng chung trong 1 giờ.` : `Bạn đã dùng hết ${take?.limit} lượt AI dùng chung hôm nay.`, 'shared_limit');
+    const body: Record<string, unknown> = { model: shared.model, max_tokens: Math.min(maxTokens, SHARED_MAX_TOKENS), temperature: 0.2, stream: false };
+    if (provider === 'intern' && /^intern-s/.test(shared.model)) body.thinking_mode = false;
+    body.messages = msgs; // messages cuối body (Intern/Discovery)
+    const call = (ms: number) => safeFetch(base + '/chat/completions', { method: 'POST', headers: { Authorization: 'Bearer ' + shared.api_key, 'Content-Type': 'application/json', Accept: 'application/json', ...(EXTRA_HEADERS[provider] || {}) }, body: JSON.stringify(body) }, ms, { httpsOnly: true });
+    let res: Response;
+    try { res = await call(RS_AI_MS); } catch (e) { if (e instanceof HttpError && e.status === 504) res = await call(RS_AI_RETRY_MS); else throw e; }
+    const t = await readLimited(res, 2_000_000); let j: any = null; try { j = JSON.parse(t); } catch { /* */ }
+    if (!res.ok) throw new HttpError(502, 'AI dùng chung lỗi HTTP ' + res.status + ': ' + String(j?.error?.message || j?.message || t).slice(0, 200));
+    const msg = j?.choices?.[0]?.message || {};
+    return String(msg.content || '').replace(/<(mm:)?think>[\s\S]*?(<\/(mm:)?think>|$)/gi, '').trim();
+  };
+  let out = await one(messages);
+  if (!out) {
+    const m2 = messages.map((m: any) => ({ ...m })); m2[m2.length - 1].content += '\n\n(Trả lời ngắn gọn, trực tiếp; không cần suy luận dài.)' + (/qwen/i.test(shared.model) ? ' /no_think' : '');
+    out = await one(m2);
+  }
+  return out;
+}
+async function getJson(req: { url: string; init: RequestInit }, opts = { httpsOnly: true }) {
+  const res = await safeFetch(req.url, req.init, RS_SEARCH_MS, opts);
+  const t = await readLimited(res, 3_000_000);
+  if (!res.ok) throw new HttpError(502, 'Công cụ tìm kiếm trả về HTTP ' + res.status);
+  try { return JSON.parse(t); } catch { throw new HttpError(502, 'Công cụ tìm kiếm trả về dữ liệu không hợp lệ'); }
+}
+/** Một truy vấn → { provider (thực dùng), results }. 'auto': DuckDuckGo (lite) → Wikipedia tiếng Việt → Wikipedia tiếng Anh. */
+async function searchOnce(provider: string, cfg: any, q: string): Promise<{ provider: string; results: any[] }> {
+  if (provider === 'tavily') return { provider, results: RS.parseTavily(await getJson(RS.tavilyRequest(q, cfg.api_key))) };
+  if (provider === 'brave') return { provider, results: RS.parseBrave(await getJson(RS.braveRequest(q, cfg.api_key))) };
+  if (provider === 'serper') return { provider, results: RS.parseSerper(await getJson(RS.serperRequest(q, cfg.api_key))) };
+  if (provider === 'searxng') return { provider, results: RS.parseSearx(await getJson(RS.searxRequest(q, cfg.base_url, cfg.api_key || ''))) };
+  try {
+    const r = RS.ddgLiteRequest(q); const res = await safeFetch(r.url, r.init, RS_SEARCH_MS, { httpsOnly: true });
+    const html = await readLimited(res, 1_000_000);
+    const out = res.status === 200 ? RS.parseDdgLite(html) : [];
+    if (out.length) return { provider: 'duckduckgo', results: out.slice(0, 6) };
+    console.warn('research: duckduckgo', res.status, 'không có kết quả → Wikipedia');
+  } catch (e) { console.warn('research: duckduckgo lỗi → Wikipedia:', (e as Error).message); }
+  for (const lang of ['vi', 'en']) {
+    try { const out = RS.parseWiki(await getJson(RS.wikiRequest(q, lang)), lang); if (out.length) return { provider: 'wikipedia', results: out }; } catch { /* thử tiếp */ }
+  }
+  return { provider: 'wikipedia', results: [] };
 }

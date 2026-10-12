@@ -6,7 +6,7 @@ import { mergeAi } from './local.js';
 
 const BUCKET = 'note-images';
 let prefsQueue = Promise.resolve();
-const NOTE_COLS_BASE = 'id,user_id,type,title,content,image_path,url,link_meta,ai_source,pinned,line_times,folder_id,tags,loc_name,loc_lat,loc_lng,loc_acc,created_at,updated_at';
+const NOTE_COLS_BASE = 'id,user_id,type,title,content,image_path,url,link_meta,ai_source,pinned,line_times,folder_id,tags,loc_name,loc_lat,loc_lng,loc_acc,auto_research,created_at,updated_at';
 // Cột "color" (màu ghi chú) được thêm ở bản 2 của schema.sql. Nếu dự án chưa chạy lại schema.sql thì
 // PostgREST báo thiếu cột → ứng dụng tự chuyển sang lưu màu trên máy này (localStorage) và vẫn chạy bình thường.
 const isMissingColor = (e) => !!e && (e.code === '42703' || e.code === 'PGRST204' || (/color/i.test(e.message || '') && /column|schema cache/i.test(e.message || '')));
@@ -242,6 +242,19 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunc
       async save(cfg) { return must(await sb.rpc('admin_set_shared_ai', { cfg })); },
       async fromMine(provider, model) { return must(await sb.rpc('admin_shared_ai_from_mine', { p_provider: provider, p_model: model || null })); },
       async setAllowCustom(id, allow) { must(await sb.rpc('admin_set_allow_custom_ai', { target: id, allow: !!allow })); },
+    },
+    // Tìm thông tin liên quan trên mạng (pha 6). Kết quả do Edge Function ghi; người dùng chỉ đọc/xoá.
+    research: {
+      available: true,
+      async config() { return must(await sb.rpc('get_web_research')); },
+      async adminSave(cfg) { return must(await sb.rpc('admin_set_web_research', { cfg })); },
+      async get(noteId) { need(); return must(await sb.from('note_research').select('*').eq('note_id', noteId).maybeSingle()); },
+      async remove(noteId) { need(); must(await sb.from('note_research').delete().eq('note_id', noteId)); },
+      async run(noteId) {
+        const r = await api.proxy.call({ action: 'research', note_id: noteId });
+        if (!r || r.status !== 200) { const e = new Error(r?.data?.error || r?.error || 'Tìm trên mạng bị lỗi'); e.code = r?.data?.code || ''; e.status = r?.status; throw e; }
+        return r.data;
+      },
     },
     reminders: {
       async list() { need(); return must(await sb.from('reminders').select('*').order('next_at', { ascending: true, nullsFirst: false }).limit(2000)); },
