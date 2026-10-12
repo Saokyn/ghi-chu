@@ -292,7 +292,7 @@ async function handle(req: Request): Promise<Response> {
 //  4) đọc các trang đầu (chặn SSRF)  5) AI tóm tắt tiếng Việt, chỉ trích dẫn [n] của trang đã đọc
 //  6) lưu note_research (chỉ service_role ghi được). Mỗi lần: 1 lượt tìm/ngày + 2 lượt AI dùng chung.
 // =====================================================================
-const RS_SEARCH_MS = 10_000, RS_PAGE_MS = 7_000, RS_PAGE_BYTES = 1_500_000, RS_MAX_TOKENS = 2000;
+const RS_SEARCH_MS = 10_000, RS_PAGE_MS = 7_000, RS_PAGE_BYTES = 1_500_000, RS_MAX_TOKENS = 1200;
 const todayVN = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const svcClient = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 
@@ -324,7 +324,7 @@ async function research(sb: any, uid: string, noteId: string): Promise<Response>
   try {
     const today = todayVN();
     // 2) truy vấn
-    const qOut = await sharedChat(svc, uid, shared, RS.queryMessages(text, today), 1500, 50_000); // chừa chỗ nếu model vẫn “suy nghĩ”
+    const qOut = await sharedChat(svc, uid, shared, RS.queryMessages(text, today), 300, 50_000); // đã tắt “suy nghĩ” → câu trả lời ngắn, xong nhanh
     const queries = RS.parseQueries(qOut, text);
     const trace: Record<string, unknown> = { queries_from: /"queries"/.test(qOut) ? 'ai' : qOut ? 'ai_text' : 'fallback', search: [] as unknown[] };
     // 3) tìm
@@ -357,7 +357,7 @@ async function research(sb: any, uid: string, noteId: string): Promise<Response>
       return json({ status: 200, data: { ...row, empty: true, trace: { ...trace, ai: AI_DIAG.slice() } } });
     }
     // 5) tóm tắt có trích dẫn
-    const sOut = await sharedChat(svc, uid, shared, RS.summaryMessages(text, sources, today), RS_MAX_TOKENS, 70_000);
+    const sOut = await sharedChat(svc, uid, shared, RS.summaryMessages(text, sources, today), RS_MAX_TOKENS, 75_000);
     const { summary, cited } = RS.cleanSummary(sOut, sources.length);
     if (!summary) { console.warn('research: tóm tắt rỗng', AI_DIAG.join(' | ')); throw new HttpError(502, 'AI không trả về bản tóm tắt — hãy thử lại.'); }
     if (!cited.length) { // AI kết luận không có nguồn liên quan (hoặc không trích dẫn được) → không hiện nguồn không liên quan
@@ -406,10 +406,11 @@ async function sharedChat(svc: any, uid: string, shared: any, messages: any[], m
     };
     if (!AI_DIAG.includes('hc')) AI_DIAG.push(mk ? 'hc' : 'no-hc');
     let res!: Response;
-    // Treo trước byte đầu → gửi lại (25 s → 20 s …) khi còn thời gian của bước này
-    for (let k = 0, waits = [25_000, 20_000, 20_000]; ; k++) {
-      const ms = Math.min(waits[Math.min(k, 2)], deadline - Date.now()); // đo 10/2026: treo thường kéo dài cả chục giây, chờ lâu 1 lần tốt hơn nhiều lần ngắn
-      if (ms < 4000) throw new HttpError(504, 'AI dùng chung không phản hồi (đã thử ' + k + ' lần)');
+    // Treo trước byte đầu → chờ lâu 1 lần (40 s) rồi gửi lại 1 lần nếu còn thời gian. Đo 10/2026: Discovery dường như xử lý tuần tự
+    // theo key — yêu cầu bị bỏ dở vẫn chạy phía họ, nên gửi lại dồn dập chỉ làm hàng đợi dài thêm.
+    for (let k = 0, waits = [40_000, 20_000]; ; k++) {
+      const ms = Math.min(waits[Math.min(k, 1)], deadline - Date.now()); // đo 10/2026: treo thường kéo dài cả chục giây, chờ lâu 1 lần tốt hơn nhiều lần ngắn
+      if (ms < 4000 || k >= 2) throw new HttpError(504, 'AI dùng chung đang quá tải, không phản hồi (đã thử ' + k + ' lần) — hãy thử lại sau ít phút.');
       try { res = await call(ms); break; } catch (e) { if (!(e instanceof HttpError && e.status === 504)) throw e; AI_DIAG.push('stall ' + Math.round(ms / 1000) + 's'); }
     }
     const ct = res!.headers.get('content-type') || '';
