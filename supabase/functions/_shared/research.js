@@ -122,7 +122,11 @@ export function parseQueries(out, text) {
   else qs = s.split('\n').map(l => l.replace(/^\s*(\d+[.)]|[-*•])\s*/, '').replace(/^["“]|["”]$/g, '').trim()).filter(l => l && l.length <= 120 && !/^(```|json)/i.test(l));
   qs = (Array.isArray(qs) ? qs : []).map(q => String(q).replace(/\s+/g, ' ').trim().slice(0, 120)).filter(q => q.length >= 2);
   qs = [...new Set(qs)].slice(0, 3);
-  if (!qs.length) { const first = String(text || '').split('\n').find(l => l.trim().length >= 3) || String(text || ''); qs = [first.replace(/\s+/g, ' ').trim().slice(0, 100)]; }
+  if (!qs.length) {
+    const clean = l => l.replace(/\[[^\]]{0,40}\]|\([^)]{0,40}\)/g, ' ').replace(/\s+/g, ' ').trim();
+    const first = String(text || '').split('\n').map(clean).find(l => l.length >= 3) || clean(String(text || ''));
+    qs = [first.slice(0, 100)];
+  }
   return qs;
 }
 export function summaryMessages(text, sources, today) {

@@ -292,13 +292,13 @@ async function handle(req: Request): Promise<Response> {
 //  4) đọc các trang đầu (chặn SSRF)  5) AI tóm tắt tiếng Việt, chỉ trích dẫn [n] của trang đã đọc
 //  6) lưu note_research (chỉ service_role ghi được). Mỗi lần: 1 lượt tìm/ngày + 2 lượt AI dùng chung.
 // =====================================================================
-const RS_AI_MS = 30_000, RS_AI_RETRY_MS = 35_000, RS_SEARCH_MS = 10_000, RS_PAGE_MS = 8_000, RS_PAGE_BYTES = 1_500_000, RS_MAX_TOKENS = 2000;
+const RS_SEARCH_MS = 10_000, RS_PAGE_MS = 7_000, RS_PAGE_BYTES = 1_500_000, RS_MAX_TOKENS = 2000;
 const todayVN = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const svcClient = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 
 async function research(sb: any, uid: string, noteId: string): Promise<Response> {
   if (!/^[0-9a-f-]{36}$/i.test(noteId)) throw new HttpError(400, 'note_id không hợp lệ');
-  const svc = svcClient();
+  const svc = svcClient(); AI_DIAG.length = 0;
   const [{ data: cfg }, { data: shared }, { data: prof }, { data: note }] = await Promise.all([
     svc.from('web_research').select('*').eq('id', 1).maybeSingle(),
     svc.from('shared_ai').select('*').eq('id', 1).maybeSingle(),
@@ -324,15 +324,16 @@ async function research(sb: any, uid: string, noteId: string): Promise<Response>
   try {
     const today = todayVN();
     // 2) truy vấn
-    const qOut = await sharedChat(svc, uid, shared, RS.queryMessages(text, today), 400);
+    const qOut = await sharedChat(svc, uid, shared, RS.queryMessages(text, today), 1500, 50_000); // chừa chỗ nếu model vẫn “suy nghĩ”
     const queries = RS.parseQueries(qOut, text);
+    const trace: Record<string, unknown> = { queries_from: /"queries"/.test(qOut) ? 'ai' : qOut ? 'ai_text' : 'fallback', search: [] as unknown[] };
     // 3) tìm
     const lists: any[][] = []; let used = '';
-    for (const q of queries) { const r = await searchOnce(provider, cfg, q); lists.push(r.results); used = used || (r.results.length ? r.provider : ''); }
+    for (const q of queries) { const r = await searchOnce(provider, cfg, q); lists.push(r.results); used = used || (r.results.length ? r.provider : ''); (trace.search as unknown[]).push({ provider: r.provider, n: r.results.length, ...(r.note ? { note: r.note } : {}) }); }
     const found = RS.mergeResults(lists, RS.MAX_SOURCES);
     if (!found.length) {
       const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
-      return json({ status: 200, data: { ...row, empty: true } });
+      return json({ status: 200, data: { ...row, empty: true, trace: { ...trace, ai: AI_DIAG.slice() } } });
     }
     // 4) đọc trang (song song, tối đa MAX_FETCH)
     const pages = await Promise.all(found.slice(0, RS.MAX_FETCH).map(async (r: any) => {
@@ -353,19 +354,24 @@ async function research(sb: any, uid: string, noteId: string): Promise<Response>
     }).filter((s: any) => s.excerpt && s.excerpt.length >= 40).slice(0, RS.MAX_SOURCES);
     if (!sources.length) {
       const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
-      return json({ status: 200, data: { ...row, empty: true } });
+      return json({ status: 200, data: { ...row, empty: true, trace: { ...trace, ai: AI_DIAG.slice() } } });
     }
     // 5) tóm tắt có trích dẫn
-    const sOut = await sharedChat(svc, uid, shared, RS.summaryMessages(text, sources, today), RS_MAX_TOKENS);
+    const sOut = await sharedChat(svc, uid, shared, RS.summaryMessages(text, sources, today), RS_MAX_TOKENS, 70_000);
     const { summary, cited } = RS.cleanSummary(sOut, sources.length);
-    if (!summary) throw new HttpError(502, 'AI không trả về bản tóm tắt — hãy thử lại.');
+    if (!summary) { console.warn('research: tóm tắt rỗng', AI_DIAG.join(' | ')); throw new HttpError(502, 'AI không trả về bản tóm tắt — hãy thử lại.'); }
+    if (!cited.length) { // AI kết luận không có nguồn liên quan (hoặc không trích dẫn được) → không hiện nguồn không liên quan
+      const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
+      return json({ status: 200, data: { ...row, empty: true, trace: { ...trace, uncited: sources.length, ai: AI_DIAG.slice() } } });
+    }
     const stored = sources.map((s: any, i: number) => ({ n: i + 1, title: s.title, url: s.url, domain: s.domain, date: s.date, fetched: s.fetched, cited: cited.includes(i + 1) }));
     const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary, sources: stored, provider: used || provider, model: shared.model });
-    return json({ status: 200, data: row });
+    trace.fetched = sources.filter((x: any) => x.fetched).length; trace.ai = AI_DIAG.slice();
+    return json({ status: 200, data: { ...row, trace } });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = scrub((e as Error).message);
-    if (e instanceof HttpError) return friendly(e.status, msg, 'research_error');
+    if (e instanceof HttpError) return json({ status: e.status, data: { error: msg, code: 'research_error', friendly: true, diag: AI_DIAG.slice(-4) } });
     console.error('research', msg);
     return friendly(502, 'Tìm trên mạng bị lỗi: ' + msg, 'research_error');
   }
@@ -375,30 +381,68 @@ async function saveResearch(svc: any, row: Record<string, unknown>) {
   if (error) throw new Error('Không lưu được kết quả: ' + error.message);
   return data;
 }
-/** Gọi AI dùng chung (không stream) — mỗi lần tính 1 lượt. Treo (Intern/Discovery) → gửi lại 1 lần; trả rỗng (hết token suy nghĩ) → hỏi lại 1 lần. */
-async function sharedChat(svc: any, uid: string, shared: any, messages: any[], maxTokens: number): Promise<string> {
-  const provider = shared.provider;
+/** Gọi AI dùng chung qua STREAM — mỗi lần tính 1 lượt. Không có byte đầu sau 12 s (Intern/Discovery treo) → gửi lại 1 lần (20 s);
+ *  sau đó đọc luồng tới hạn chót `budgetMs` (hết giờ mà đã có chữ → dùng phần đã có). Trả rỗng → hỏi lại 1 lần “trả lời ngay”. */
+const AI_DIAG: string[] = [];
+async function sharedChat(svc: any, uid: string, shared: any, messages: any[], maxTokens: number, budgetMs = 45_000): Promise<string> {
+  const provider = shared.provider, deadline = Date.now() + budgetMs;
   let base = String(shared.base_url || DEFAULT_BASE[provider] || '').replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
   if (base.includes('{ACCOUNT_ID}') && shared.account_id) base = base.split('{ACCOUNT_ID}').join(encodeURIComponent(shared.account_id));
+  const qwen = /qwen/i.test(shared.model);
   const one = async (msgs: any[]) => {
     const { data: take, error } = await svc.rpc('shared_ai_take', { uid });
     if (error) throw new Error('Không kiểm tra được hạn mức AI: ' + error.message);
     if (!take?.ok) throw friendly(429, take?.reason === 'hour' ? `Bạn đã dùng hết ${take.limit} lượt AI dùng chung trong 1 giờ.` : `Bạn đã dùng hết ${take?.limit} lượt AI dùng chung hôm nay.`, 'shared_limit');
-    const body: Record<string, unknown> = { model: shared.model, max_tokens: Math.min(maxTokens, SHARED_MAX_TOKENS), temperature: 0.2, stream: false };
+    const body: Record<string, unknown> = { model: shared.model, max_tokens: Math.min(maxTokens, SHARED_MAX_TOKENS), temperature: 0.2, stream: true };
     if (provider === 'intern' && /^intern-s/.test(shared.model)) body.thinking_mode = false;
+    // Qwen3 trên máy chủ kiểu vLLM/DashScope: tắt “suy nghĩ” (bỏ qua nếu máy chủ không hỗ trợ) — /no_think trong lời nhắc không đủ với qwen3.8
+    if (qwen) { body.chat_template_kwargs = { enable_thinking: false }; body.enable_thinking = false; }
     body.messages = msgs; // messages cuối body (Intern/Discovery)
-    const call = (ms: number) => safeFetch(base + '/chat/completions', { method: 'POST', headers: { Authorization: 'Bearer ' + shared.api_key, 'Content-Type': 'application/json', Accept: 'application/json', ...(EXTRA_HEADERS[provider] || {}) }, body: JSON.stringify(body) }, ms, { httpsOnly: true });
-    let res: Response;
-    try { res = await call(RS_AI_MS); } catch (e) { if (e instanceof HttpError && e.status === 504) res = await call(RS_AI_RETRY_MS); else throw e; }
-    const t = await readLimited(res, 2_000_000); let j: any = null; try { j = JSON.parse(t); } catch { /* */ }
-    if (!res.ok) throw new HttpError(502, 'AI dùng chung lỗi HTTP ' + res.status + ': ' + String(j?.error?.message || j?.message || t).slice(0, 200));
-    const msg = j?.choices?.[0]?.message || {};
-    return String(msg.content || '').replace(/<(mm:)?think>[\s\S]*?(<\/(mm:)?think>|$)/gi, '').trim();
+    // Mỗi lần thử dùng KẾT NỐI MỚI: khi một kết nối giữ sẵn (keep-alive) tới Discovery bị treo, gửi lại trên cùng kết nối cũng treo.
+    const mk = (Deno as any).createHttpClient;
+    const call = (ms: number) => {
+      let client: any = null; try { client = mk ? mk({ poolMaxIdlePerHost: 0, http2: false }) : null; } catch { client = null; }
+      return safeFetch(base + '/chat/completions', { method: 'POST', ...(client ? { client } : {}), headers: { Authorization: 'Bearer ' + shared.api_key, 'Content-Type': 'application/json', Accept: 'text/event-stream', Connection: 'close', ...(EXTRA_HEADERS[provider] || {}) }, body: JSON.stringify(body) } as RequestInit, ms, { httpsOnly: true });
+    };
+    if (!AI_DIAG.includes('hc')) AI_DIAG.push(mk ? 'hc' : 'no-hc');
+    let res!: Response;
+    // Treo trước byte đầu → gửi lại (25 s → 20 s …) khi còn thời gian của bước này
+    for (let k = 0, waits = [25_000, 20_000, 20_000]; ; k++) {
+      const ms = Math.min(waits[Math.min(k, 2)], deadline - Date.now()); // đo 10/2026: treo thường kéo dài cả chục giây, chờ lâu 1 lần tốt hơn nhiều lần ngắn
+      if (ms < 4000) throw new HttpError(504, 'AI dùng chung không phản hồi (đã thử ' + k + ' lần)');
+      try { res = await call(ms); break; } catch (e) { if (!(e instanceof HttpError && e.status === 504)) throw e; AI_DIAG.push('stall ' + Math.round(ms / 1000) + 's'); }
+    }
+    const ct = res!.headers.get('content-type') || '';
+    if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
+      const t = await readLimited(res, 2_000_000); let j: any = null; try { j = JSON.parse(t); } catch { /* */ }
+      if (!res.ok) throw new HttpError(502, 'AI dùng chung lỗi HTTP ' + res.status + ': ' + String(j?.error?.message || j?.message || t).slice(0, 200));
+      return String(j?.choices?.[0]?.message?.content || '');
+    }
+    const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '', text = '', think = 0, fin = '';
+    for (;;) {
+      const left = deadline - Date.now(); if (left <= 0) { await rd.cancel().catch(() => {}); if (text) break; throw new HttpError(504, 'AI dùng chung trả lời quá chậm'); }
+      const r = await Promise.race([rd.read(), new Promise<{ timeout: true }>(ok => setTimeout(() => ok({ timeout: true }), left))]) as any;
+      if (r.timeout) continue;
+      if (r.done) break;
+      buf += dec.decode(r.value, { stream: true }); let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue; const d = line.slice(5).trim(); if (d === '[DONE]') continue;
+        let j: any; try { j = JSON.parse(d); } catch { continue; }
+        if (j?.error) throw new HttpError(502, 'AI dùng chung lỗi: ' + String(j.error.message || j.error).slice(0, 200));
+        const ch = j?.choices?.[0]; const piece = ch?.delta?.content; if (piece) text += piece; // bỏ reasoning_content
+        think += String(ch?.delta?.reasoning_content || ch?.delta?.reasoning || '').length; if (ch?.finish_reason) fin = ch.finish_reason;
+      }
+    }
+    AI_DIAG.push(`think=${think} fin=${fin || '-'} len=${text.length}`);
+    return text;
   };
-  let out = await one(messages);
-  if (!out) {
-    const m2 = messages.map((m: any) => ({ ...m })); m2[m2.length - 1].content += '\n\n(Trả lời ngắn gọn, trực tiếp; không cần suy luận dài.)' + (/qwen/i.test(shared.model) ? ' /no_think' : '');
-    out = await one(m2);
+  const strip = (t: string) => t.replace(/<(mm:)?think>[\s\S]*?(<\/(mm:)?think>|$)/gi, '').trim();
+  const withNoThink = (ms: any[]) => { const m2 = ms.map((m: any) => ({ ...m })); m2[m2.length - 1].content += qwen ? ' /no_think' : ''; return m2; };
+  let out = strip(await one(withNoThink(messages)));
+  if (!out && Date.now() < deadline - 5000) {
+    const m2 = withNoThink(messages); m2[m2.length - 1].content += '\n\n(Trả lời ngắn gọn, trực tiếp; không cần suy luận dài.)';
+    out = strip(await one(m2));
   }
   return out;
 }
@@ -409,20 +453,22 @@ async function getJson(req: { url: string; init: RequestInit }, opts = { httpsOn
   try { return JSON.parse(t); } catch { throw new HttpError(502, 'Công cụ tìm kiếm trả về dữ liệu không hợp lệ'); }
 }
 /** Một truy vấn → { provider (thực dùng), results }. 'auto': DuckDuckGo (lite) → Wikipedia tiếng Việt → Wikipedia tiếng Anh. */
-async function searchOnce(provider: string, cfg: any, q: string): Promise<{ provider: string; results: any[] }> {
+async function searchOnce(provider: string, cfg: any, q: string): Promise<{ provider: string; results: any[]; note?: string }> {
   if (provider === 'tavily') return { provider, results: RS.parseTavily(await getJson(RS.tavilyRequest(q, cfg.api_key))) };
   if (provider === 'brave') return { provider, results: RS.parseBrave(await getJson(RS.braveRequest(q, cfg.api_key))) };
   if (provider === 'serper') return { provider, results: RS.parseSerper(await getJson(RS.serperRequest(q, cfg.api_key))) };
   if (provider === 'searxng') return { provider, results: RS.parseSearx(await getJson(RS.searxRequest(q, cfg.base_url, cfg.api_key || ''))) };
+  let note = '';
   try {
     const r = RS.ddgLiteRequest(q); const res = await safeFetch(r.url, r.init, RS_SEARCH_MS, { httpsOnly: true });
     const html = await readLimited(res, 1_000_000);
     const out = res.status === 200 ? RS.parseDdgLite(html) : [];
     if (out.length) return { provider: 'duckduckgo', results: out.slice(0, 6) };
-    console.warn('research: duckduckgo', res.status, 'không có kết quả → Wikipedia');
-  } catch (e) { console.warn('research: duckduckgo lỗi → Wikipedia:', (e as Error).message); }
+    note = 'ddg ' + res.status + ' 0';
+  } catch (e) { note = 'ddg ' + ((e as any).code || (e as Error).message).slice(0, 60); }
   for (const lang of ['vi', 'en']) {
-    try { const out = RS.parseWiki(await getJson(RS.wikiRequest(q, lang)), lang); if (out.length) return { provider: 'wikipedia', results: out }; } catch { /* thử tiếp */ }
+    try { const out = RS.parseWiki(await getJson(RS.wikiRequest(q, lang)), lang); if (out.length) return { provider: 'wikipedia', results: out, note }; note += ` · wiki-${lang} 0`; }
+    catch (e) { note += ` · wiki-${lang} ${(e as Error).message.slice(0, 40)}`; }
   }
-  return { provider: 'wikipedia', results: [] };
+  return { provider: 'wikipedia', results: [], note };
 }
