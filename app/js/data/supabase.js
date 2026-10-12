@@ -244,6 +244,42 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunc
       async setAllowCustom(id, allow) { must(await sb.rpc('admin_set_allow_custom_ai', { target: id, allow: !!allow })); },
     },
     // Tìm thông tin liên quan trên mạng (pha 6). Kết quả do Edge Function ghi; người dùng chỉ đọc/xoá.
+    automations: {
+      available: true,
+      async settings() { return must(await sb.rpc('get_automation_settings')); },
+      async adminSave(cfg) { return must(await sb.rpc('admin_set_automation_settings', { cfg })); },
+      async adminUsers() { return must(await sb.rpc('admin_list_automation_users')); },
+      async adminAllow(target, allow) { must(await sb.rpc('admin_set_allow_automations', { target, allow })); },
+      async list() { need(); return must(await sb.from('automations').select('id,note_id,kind,title,enabled,schedule,config,next_run_at,last_run_at,last_status,last_result,claimed_at,created_at').order('created_at', { ascending: false })); },
+      async create(f) { need(); const r = { note_id: f.note_id, kind: f.kind, title: f.title || '', enabled: f.enabled !== false, schedule: f.schedule, config: f.config || {} }; return must(await sb.from('automations').insert(r).select('*').single()); },
+      async update(id, patch) { need(); const p = {}; for (const k of ['title', 'enabled', 'schedule', 'config']) if (k in patch) p[k] = patch[k]; return must(await sb.from('automations').update(p).eq('id', id).select('*').single()); },
+      async remove(id) { need(); must(await sb.from('automations').delete().eq('id', id)); },
+      async runs(id, limit = 10) { need(); return must(await sb.from('automation_runs').select('id,trigger,status,summary,data,started_at,finished_at').eq('automation_id', id).order('started_at', { ascending: false }).limit(limit)); },
+      async run(id) {
+        need();
+        const { data, error } = await sb.functions.invoke('automations', { body: { action: 'run', id } });
+        if (error) {
+          let msg = error.message, code = '';
+          try { const j = await error.context?.json?.(); if (j?.error) { msg = j.error; code = j.code || ''; } } catch { /* bỏ qua */ }
+          const e = new Error(msg); e.code = code; throw e;
+        }
+        return data;
+      },
+      notifications: {
+        async list(limit = 50) { need(); return must(await sb.from('user_notifications').select('*').order('created_at', { ascending: false }).limit(limit)); },
+        async markRead(ids) { need(); if (!ids.length) return; must(await sb.from('user_notifications').update({ read_at: new Date().toISOString() }).in('id', ids)); },
+        async remove(id) { need(); must(await sb.from('user_notifications').delete().eq('id', id)); },
+        async clear() { need(); must(await sb.from('user_notifications').delete().eq('user_id', user.id)); },
+      },
+      subscribe(cb) {
+        need();
+        const ch = sb.channel('automations:' + user.id)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'user_notifications', filter: `user_id=eq.${user.id}` }, () => cb('notif'))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'automations', filter: `user_id=eq.${user.id}` }, () => cb('auto'))
+          .subscribe();
+        return () => sb.removeChannel(ch);
+      },
+    },
     research: {
       available: true,
       async config() { return must(await sb.rpc('get_web_research')); },

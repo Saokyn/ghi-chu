@@ -55,7 +55,7 @@ export async function vapidAuth(endpoint, { publicKey, privateKey, subject }, tt
 /**
  * Gửi một thông báo. Trả { ok, status, gone } — gone=true khi subscription hết hạn (404/410) nên xoá.
  */
-export async function sendPush(sub, payload, vapid, { ttl = 86400, urgency = 'high', topic } = {}) {
+export async function sendPush(sub, payload, vapid, { ttl = 86400, urgency = 'high', topic = '' } = {}) {
   const body = await encryptPayload(sub, te.encode(typeof payload === 'string' ? payload : JSON.stringify(payload)));
   const headers = { 'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: String(ttl), Urgency: urgency, Authorization: await vapidAuth(sub.endpoint, vapid) };
   if (topic) headers.Topic = topic;

@@ -20,3 +20,16 @@ select cron.schedule('send-reminders', '* * * * *', $job$
 $job$);
 -- Kiểm tra: select * from cron.job_run_details order by start_time desc limit 5;
 --           select id, status_code, content from net._http_response order by created desc limit 5;
+
+-- Tự động hóa (Giai đoạn 7): mỗi phút gọi Edge Function "automations" — CHỈ khi có tự động hóa đến hạn.
+-- Dùng chung secret 'reminders_cron_secret' (cùng giá trị CRON_SECRET của các Edge Function). Mỗi lần gọi xử lý 1 việc.
+select cron.unschedule(jobid) from cron.job where jobname = 'run-automations';
+select cron.schedule('run-automations', '* * * * *', $job$
+  select net.http_post(
+    url := 'https://gcjincowezbjynoasfsk.supabase.co/functions/v1/automations',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'reminders_cron_secret')),
+    body := '{}'::jsonb, timeout_milliseconds := 150000)
+  where exists (select 1 from public.automations a where a.enabled and a.next_run_at <= now()
+                  and (a.claimed_at is null or a.claimed_at < now() - interval '10 minutes'));
+$job$);

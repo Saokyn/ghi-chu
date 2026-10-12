@@ -121,6 +121,16 @@ Chưa deploy thì: Grok/Gemini/Groq/OpenRouter… vẫn gọi thẳng từ trìn
   - *Tavily* / *Brave Search* / *Serper (Google)*: cần API key của dịch vụ đó; *SearXNG*: địa chỉ https của máy chủ SearXNG (bật định dạng JSON), key tuỳ chọn.
   Key lưu ở bảng `web_research` (không policy → chỉ service_role/Edge Function đọc); giao diện chỉ hiện 4 ký tự cuối.
 
+### Tự động hóa (Edge Function `automations` + pg_cron)
+- Trang **Tự động hóa** (`#/tu-dong-hoa`, hoặc nút ⚡ trên thanh đầu khi dùng điện thoại) + nút **Tự động hóa** trong khung “Thông tin liên quan” của ghi chú.
+- 3 loại, lịch hằng ngày/hằng tuần theo giờ Việt Nam:
+  - *Theo dõi chủ đề*: tìm lại chủ đề của ghi chú, lưu các URL đã thấy; chỉ báo khi có kết quả **mới** (lần đầu chỉ ghi mốc).
+  - *Bản tin định kỳ*: tạo ghi chú mới (tuỳ chọn thư mục) gồm bản tin tiếng Việt có trích dẫn `[n]` tới đúng các trang đã đọc.
+  - *Theo dõi giá / sự kiện*: giá dưới/trên X ₫, có chứa từ khóa, đã công bố ngày. Giá/ngày do AI trích nhưng chỉ được nhận khi câu trích có **nguyên văn** trong trang đã đọc và giá hợp lý; không chắc → “Không xác định được”. Đã báo thì chờ 24 giờ (trừ khi giá tốt hơn ≥1%).
+- Báo qua Web Push (như Nhắc việc) + thông báo trong app (`user_notifications`). Lịch sử 30 lượt gần nhất/tự động hóa.
+- Deploy: `supabase functions deploy automations --no-verify-jwt` (hàm tự kiểm tra `x-cron-secret` hoặc JWT người dùng cho “Chạy ngay”), rồi chạy phần `run-automations` trong `supabase/cron.sql`. Dùng chung secret `CRON_SECRET`, `VAPID_*`, `ALLOWED_ORIGINS`.
+- Giới hạn: **Quản trị → AI dùng chung → Tự động hóa**: bật tính năng (mặc định tắt = chỉ admin), cho phép mọi người hoặc từng người, số tự động hóa/người (5), số lượt chạy/người/24 giờ (12). Mỗi lượt còn tính vào hạn mức tìm trên mạng + AI dùng chung của người đó.
+
 ## 6. Deploy GitHub Pages (sau này)
 
 Mọi đường dẫn trong app đều **tương đối**, nên chạy được ở `https://<tên-github>.github.io/<tên-repo>/`.

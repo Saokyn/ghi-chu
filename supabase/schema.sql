@@ -899,4 +899,289 @@ grant execute on function public.get_web_research() to authenticated;
 grant execute on function public.admin_set_web_research(jsonb) to authenticated;
 grant execute on function public.web_research_take(uuid) to service_role;
 
+-- =====================================================================
+-- Giai đoạn 7: Tự động hóa (theo dõi chủ đề · bản tin định kỳ · theo dõi giá/sự kiện)
+--   * Chạy trên máy chủ: pg_cron (cron.sql) gọi Edge Function "automations" mỗi phút khi có việc đến hạn.
+--   * automations: người dùng tạo/sửa/xoá của chính mình (chỉ một số cột); state/next_run_at… do máy chủ ghi.
+--   * Quyền: admin luôn dùng được; người khác cần automation_settings.enabled VÀ (profiles.allow_automations
+--     hoặc default_allow). Giới hạn số tự động hóa/người và số lượt chạy/ngày (ngoài hạn mức AI + tìm kiếm).
+-- =====================================================================
+create table if not exists public.automation_settings (
+  id            int primary key default 1 check (id = 1),
+  enabled       boolean not null default false,
+  default_allow boolean not null default false,
+  max_per_user  int not null default 5 check (max_per_user between 0 and 50),
+  max_runs_day  int not null default 12 check (max_runs_day between 0 and 200),
+  updated_at    timestamptz not null default now(),
+  updated_by    uuid
+);
+insert into public.automation_settings (id) values (1) on conflict (id) do nothing;
+alter table public.automation_settings enable row level security;   -- không policy: chỉ qua hàm
+revoke all on public.automation_settings from public, anon, authenticated;
+grant select on public.automation_settings to service_role;
+
+alter table public.profiles add column if not exists allow_automations boolean not null default false;
+
+create or replace function public.automation_allowed(uid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select p.role = 'admin' from public.profiles p where p.id = uid), false)
+      or coalesce((select s.enabled and (s.default_allow or coalesce((select p.allow_automations from public.profiles p where p.id = uid), false))
+                   from public.automation_settings s where s.id = 1), false);
+$$;
+
+-- Lần chạy kế tiếp theo giờ Việt Nam. schedule = {"freq":"daily"|"weekly","time":"HH:MM","dow":0..6 (0 = Chủ nhật)}
+create or replace function public.automation_next(schedule jsonb, from_ts timestamptz default now())
+returns timestamptz language plpgsql stable set search_path = public as $$
+declare tz constant text := 'Asia/Ho_Chi_Minh'; t time; cand timestamptz; wk boolean; d int; i int;
+begin
+  if coalesce(schedule->>'time', '') !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]$' then return null; end if;
+  t := (schedule->>'time')::time; wk := schedule->>'freq' = 'weekly'; d := coalesce((schedule->>'dow')::int, 1);
+  cand := ((from_ts at time zone tz)::date + t) at time zone tz;
+  for i in 0..14 loop
+    if cand > from_ts and (not wk or extract(dow from cand at time zone tz)::int = d) then return cand; end if;
+    cand := cand + interval '1 day';
+  end loop;
+  return null;
+end $$;
+
+create table if not exists public.automations (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  note_id     uuid not null references public.notes(id) on delete cascade,
+  kind        text not null check (kind in ('watch', 'digest', 'price')),
+  title       text not null default '' check (length(title) <= 200),
+  enabled     boolean not null default true,
+  schedule    jsonb not null,
+  config      jsonb not null default '{}'::jsonb,
+  state       jsonb not null default '{}'::jsonb,       -- máy chủ: seen (url đã thấy), last_alert_at/value, retry…
+  next_run_at timestamptz,
+  last_run_at timestamptz,
+  last_status text,
+  last_result jsonb,
+  claimed_at  timestamptz,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  constraint automations_size check (length(config::text) <= 2000 and length(state::text) <= 60000)
+);
+create index if not exists automations_user on public.automations (user_id);
+create index if not exists automations_due on public.automations (next_run_at) where enabled;
+alter table public.automations enable row level security;
+drop policy if exists automations_own on public.automations;
+create policy automations_own on public.automations for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke all on public.automations from public, anon, authenticated;
+grant select, delete on public.automations to authenticated;
+grant insert (id, note_id, kind, title, enabled, schedule, config) on public.automations to authenticated;
+grant update (title, enabled, schedule, config) on public.automations to authenticated;
+grant select, insert, update, delete on public.automations to service_role;
+
+create or replace function public.automations_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare s public.automation_settings; n int; c jsonb := new.config; sch jsonb := new.schedule;
+begin
+  select * into s from public.automation_settings where id = 1;
+  if tg_op = 'INSERT' then
+    if auth.uid() is not null then new.user_id := auth.uid(); end if;
+    if not public.automation_allowed(new.user_id) then raise exception 'Quản trị viên chưa bật Tự động hóa cho tài khoản này' using errcode = '42501'; end if;
+    perform pg_advisory_xact_lock(hashtext('automations:' || new.user_id::text));
+    select count(*) into n from public.automations where user_id = new.user_id;
+    if n >= s.max_per_user then raise exception 'Đã đạt giới hạn % tự động hóa', s.max_per_user using errcode = 'P0001'; end if;
+    new.state := '{}'::jsonb; new.last_status := null; new.last_result := null; new.last_run_at := null; new.claimed_at := null;
+  end if;
+  if not exists (select 1 from public.notes where id = new.note_id and user_id = new.user_id) then
+    raise exception 'Ghi chú không tồn tại' using errcode = '42501'; end if;
+  if tg_op = 'UPDATE' and (new.user_id <> old.user_id or new.note_id <> old.note_id or new.kind <> old.kind) then
+    raise exception 'Không đổi được chủ sở hữu/ghi chú/loại' using errcode = '42501'; end if;
+  -- Kiểm tra lịch + cấu hình
+  if coalesce(sch->>'freq', '') not in ('daily', 'weekly') or public.automation_next(sch) is null
+     or (sch->>'freq' = 'weekly' and coalesce(sch->>'dow', '') !~ '^[0-6]$') then
+    raise exception 'Lịch không hợp lệ' using errcode = '22023'; end if;
+  new.schedule := jsonb_build_object('freq', sch->>'freq', 'time', sch->>'time') || case when sch->>'freq' = 'weekly' then jsonb_build_object('dow', (sch->>'dow')::int) else '{}'::jsonb end;
+  if jsonb_typeof(c) <> 'object' then raise exception 'Cấu hình không hợp lệ' using errcode = '22023'; end if;
+  if new.kind = 'price' then
+    if coalesce(c->>'op', '') not in ('below', 'above', 'contains', 'announced') or length(trim(coalesce(c->>'target', ''))) < 2 then
+      raise exception 'Cấu hình theo dõi giá/sự kiện không hợp lệ' using errcode = '22023'; end if;
+    if c->>'op' in ('below', 'above') and (coalesce(c->>'threshold', '') !~ '^[0-9]+(\.[0-9]+)?$' or (c->>'threshold')::numeric < 1000 or (c->>'threshold')::numeric > 1e11) then
+      raise exception 'Mức giá không hợp lệ' using errcode = '22023'; end if;
+    if c->>'op' = 'contains' and length(trim(coalesce(c->>'keyword', ''))) < 2 then raise exception 'Thiếu từ khóa' using errcode = '22023'; end if;
+  end if;
+  if new.kind = 'digest' and nullif(c->>'folder_id', '') is not null then
+    if coalesce(c->>'folder_id', '') !~* '^[0-9a-f-]{36}$' or not exists (select 1 from public.folders f where f.id = (c->>'folder_id')::uuid and f.user_id = new.user_id) then
+      raise exception 'Thư mục không tồn tại' using errcode = '42501'; end if;
+  end if;
+  -- Lịch chạy: tính lại khi tạo, đổi lịch, hoặc bật lại; tạm dừng → không có lần chạy kế tiếp
+  if not new.enabled then new.next_run_at := null;
+  elsif tg_op = 'INSERT' or new.schedule is distinct from old.schedule or not old.enabled then
+    new.next_run_at := public.automation_next(new.schedule, now());
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists automations_guard on public.automations;
+create trigger automations_guard before insert or update on public.automations for each row execute function public.automations_guard();
+
+create table if not exists public.automation_runs (
+  id            bigint generated always as identity primary key,
+  automation_id uuid not null references public.automations(id) on delete cascade,
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  trigger       text not null default 'cron' check (trigger in ('cron', 'manual')),
+  status        text not null default 'running',     -- running | ok | new | none | alert | unmet | unknown | error | skipped
+  summary       text not null default '' check (length(summary) <= 4000),
+  data          jsonb not null default '{}'::jsonb check (length(data::text) <= 20000),
+  started_at    timestamptz not null default now(),
+  finished_at   timestamptz
+);
+create index if not exists automation_runs_auto on public.automation_runs (automation_id, started_at desc);
+create index if not exists automation_runs_user on public.automation_runs (user_id, started_at desc);
+alter table public.automation_runs enable row level security;
+drop policy if exists automation_runs_select on public.automation_runs;
+create policy automation_runs_select on public.automation_runs for select to authenticated using (user_id = auth.uid());
+revoke all on public.automation_runs from public, anon, authenticated;
+grant select on public.automation_runs to authenticated;
+grant select, insert, update, delete on public.automation_runs to service_role;
+
+create table if not exists public.user_notifications (
+  id            bigint generated always as identity primary key,
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  automation_id uuid references public.automations(id) on delete set null,
+  title         text not null check (length(title) <= 300),
+  body          text not null default '' check (length(body) <= 2000),
+  url           text check (url is null or length(url) <= 500),
+  sources       jsonb not null default '[]'::jsonb check (jsonb_typeof(sources) = 'array' and length(sources::text) <= 8000),
+  created_at    timestamptz not null default now(),
+  read_at       timestamptz
+);
+create index if not exists user_notifications_user on public.user_notifications (user_id, created_at desc);
+alter table public.user_notifications enable row level security;
+drop policy if exists user_notifications_select on public.user_notifications;
+create policy user_notifications_select on public.user_notifications for select to authenticated using (user_id = auth.uid());
+drop policy if exists user_notifications_update on public.user_notifications;
+create policy user_notifications_update on public.user_notifications for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists user_notifications_delete on public.user_notifications;
+create policy user_notifications_delete on public.user_notifications for delete to authenticated using (user_id = auth.uid());
+revoke all on public.user_notifications from public, anon, authenticated;
+grant select, delete on public.user_notifications to authenticated;
+grant update (read_at) on public.user_notifications to authenticated;
+grant select, insert, update, delete on public.user_notifications to service_role;
+
+-- Giữ lịch sử gọn: 30 lượt/tự động hóa, 100 thông báo/người
+create or replace function public.automation_trim()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'automation_runs' then
+    delete from public.automation_runs where automation_id = new.automation_id and id not in
+      (select id from public.automation_runs where automation_id = new.automation_id order by started_at desc, id desc limit 30);
+  else
+    delete from public.user_notifications where user_id = new.user_id and id not in
+      (select id from public.user_notifications where user_id = new.user_id order by created_at desc, id desc limit 100);
+  end if;
+  return null;
+end $$;
+drop trigger if exists automation_runs_trim on public.automation_runs;
+create trigger automation_runs_trim after insert on public.automation_runs for each row execute function public.automation_trim();
+drop trigger if exists user_notifications_trim on public.user_notifications;
+create trigger user_notifications_trim after insert on public.user_notifications for each row execute function public.automation_trim();
+
+create or replace function public.get_automation_settings()
+returns json language plpgsql stable security definer set search_path = public as $$
+declare s public.automation_settings; adm boolean; n int; r int;
+begin
+  if auth.uid() is null then raise exception 'Cần đăng nhập' using errcode = '42501'; end if;
+  select * into s from public.automation_settings where id = 1;
+  adm := public.is_admin();
+  select count(*) into n from public.automations where user_id = auth.uid();
+  select count(*) into r from public.automation_runs where user_id = auth.uid() and started_at > now() - interval '1 day';
+  return (jsonb_build_object('available', public.automation_allowed(auth.uid()), 'max_per_user', s.max_per_user,
+    'max_runs_day', s.max_runs_day, 'count', n, 'runs_day', r, 'is_admin', adm)
+    || case when adm then jsonb_build_object('enabled', s.enabled, 'default_allow', s.default_allow, 'updated_at', s.updated_at) else '{}'::jsonb end)::json;
+end $$;
+
+create or replace function public.admin_set_automation_settings(cfg jsonb)
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin' using errcode = '42501'; end if;
+  update public.automation_settings set
+    enabled = coalesce((cfg->>'enabled')::boolean, enabled),
+    default_allow = coalesce((cfg->>'default_allow')::boolean, default_allow),
+    max_per_user = coalesce((cfg->>'max_per_user')::int, max_per_user),
+    max_runs_day = coalesce((cfg->>'max_runs_day')::int, max_runs_day),
+    updated_at = now(), updated_by = auth.uid()
+  where id = 1;
+  return public.get_automation_settings();
+end $$;
+
+create or replace function public.admin_list_automation_users()
+returns table (id uuid, email text, role text, allow_automations boolean, automations int, runs_day int)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin' using errcode = '42501'; end if;
+  return query select p.id, p.email, p.role, p.allow_automations,
+    (select count(*)::int from public.automations a where a.user_id = p.id),
+    (select count(*)::int from public.automation_runs r where r.user_id = p.id and r.started_at > now() - interval '1 day')
+  from public.profiles p order by p.created_at;
+end $$;
+
+create or replace function public.admin_set_allow_automations(target uuid, allow boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ admin' using errcode = '42501'; end if;
+  update public.profiles set allow_automations = allow where id = target;
+end $$;
+
+-- Chỉ Edge Function: nhận tối đa lim việc đến hạn (khoá lạc quan, bỏ qua dòng đang bị khoá)
+create or replace function public.automations_claim(lim int default 1)
+returns setof public.automations language plpgsql security definer set search_path = public as $$
+begin
+  return query update public.automations a set claimed_at = now()
+  where a.id in (select x.id from public.automations x
+                 where x.enabled and x.next_run_at <= now() and (x.claimed_at is null or x.claimed_at < now() - interval '10 minutes')
+                 order by x.next_run_at limit greatest(1, least(lim, 10)) for update skip locked)
+  returning a.*;
+end $$;
+
+-- Chỉ Edge Function: kiểm tra quyền + hạn mức lượt chạy/ngày và giữ chỗ một lượt (dòng lịch sử “running”).
+create or replace function public.automation_run_take(aid uuid, trig text default 'cron')
+returns json language plpgsql security definer set search_path = public as $$
+declare a public.automations; s public.automation_settings; d int; rid bigint;
+begin
+  select * into a from public.automations where id = aid;
+  if not found then return json_build_object('ok', false, 'reason', 'missing'); end if;
+  if not public.automation_allowed(a.user_id) then return json_build_object('ok', false, 'reason', 'off'); end if;
+  perform pg_advisory_xact_lock(hashtext('automation_runs:' || a.user_id::text));
+  select * into s from public.automation_settings where id = 1;
+  select count(*) into d from public.automation_runs where user_id = a.user_id and started_at > now() - interval '1 day';
+  if d >= s.max_runs_day then return json_build_object('ok', false, 'reason', 'limit', 'limit', s.max_runs_day); end if;
+  insert into public.automation_runs (automation_id, user_id, trigger) values (aid, a.user_id, case when trig = 'manual' then 'manual' else 'cron' end) returning id into rid;
+  return json_build_object('ok', true, 'run_id', rid, 'runs_day', d + 1, 'limit', s.max_runs_day);
+end $$;
+
+revoke all on function public.automation_allowed(uuid) from public, anon, authenticated;
+revoke all on function public.automation_next(jsonb, timestamptz) from public, anon;
+revoke all on function public.automations_guard() from public, anon, authenticated;
+revoke all on function public.automation_trim() from public, anon, authenticated;
+revoke all on function public.get_automation_settings() from public, anon;
+revoke all on function public.admin_set_automation_settings(jsonb) from public, anon;
+revoke all on function public.admin_list_automation_users() from public, anon;
+revoke all on function public.admin_set_allow_automations(uuid, boolean) from public, anon;
+revoke all on function public.automations_claim(int) from public, anon, authenticated;
+revoke all on function public.automation_run_take(uuid, text) from public, anon, authenticated;
+grant execute on function public.automation_next(jsonb, timestamptz) to authenticated, service_role;
+grant execute on function public.automation_allowed(uuid) to service_role;
+grant execute on function public.get_automation_settings() to authenticated;
+grant execute on function public.admin_set_automation_settings(jsonb) to authenticated;
+grant execute on function public.admin_list_automation_users() to authenticated;
+grant execute on function public.admin_set_allow_automations(uuid, boolean) to authenticated;
+grant execute on function public.automations_claim(int) to service_role;
+grant execute on function public.automation_run_take(uuid, text) to service_role;
+
+-- Thời gian thực: thông báo trong app + trạng thái tự động hóa
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'user_notifications') then
+      alter publication supabase_realtime add table public.user_notifications; end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'automations') then
+      alter publication supabase_realtime add table public.automations; end if;
+  end if;
+end $$;
+
+
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

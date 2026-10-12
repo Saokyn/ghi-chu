@@ -1,6 +1,7 @@
 // Bảng “Thông tin liên quan” dưới ghi chú: tìm trên mạng (thủ công hoặc tự động khi lưu), tóm tắt có trích dẫn [n] → nguồn.
 // Kết quả do máy chủ (Edge Function) tạo & lưu ở note_research; ở đây chỉ hiển thị (đã lọc an toàn), làm mới, ẩn, lưu vào ghi chú.
 import { esc, toast } from '../util.js';
+import { automationsAvailable, openAutomationDialog } from './automations.js';
 import { icon } from '../icons.js';
 import { formatDateTime } from '../format.js';
 import { confirmDialog } from './dialogs.js';
@@ -84,17 +85,19 @@ export function mountResearch(app, ed) {
           ${res.summary && src.length ? `<div class="rp-act"><button class="btn sm" data-r="append">${icon('plus', 14)}Lưu vào ghi chú</button></div>` : ''}`;
       }
       host.innerHTML = `<section class="rp ${res || s.loading || s.error ? 'has' : ''}" aria-label="Thông tin liên quan" aria-busy="${s.loading}">${head(auto, !!res, s.loading)}${body}
-        <p class="rp-priv">${icon('lock', 12)}${esc(PRIVACY)}${app.webResearch?.daily_limit ? ` Hạn mức: ${Math.max(0, app.webResearch.daily_limit - (app.webResearch.used_day || 0))}/${app.webResearch.daily_limit} lượt hôm nay.` : ''}</p></section>`;
+        <p class="rp-priv">${icon('lock', 12)}${esc(PRIVACY)}${app.webResearch?.daily_limit ? ` Hạn mức: còn ${Math.max(0, app.webResearch.daily_limit - (app.webResearch.used_day || 0))}/${app.webResearch.daily_limit} lượt hôm nay.` : ''}</p></section>`;
       if (check) panel.checkStale();
     },
   };
   const head = (auto, hasRes, loading) => `<div class="rp-h"><h4>${icon('globe', 16)}Thông tin liên quan</h4>
     <label class="tg rp-auto" title="Tự tìm lại sau khi bạn lưu thay đổi đáng kể"><button class="sw ${auto ? 'on' : ''}" data-r="auto" role="switch" aria-checked="${auto}" aria-label="Tự động tìm trên mạng" ${ed.noteId() ? '' : 'disabled'}></button><span>Tự động tìm trên mạng</span></label>
     <button class="btn sm rp-run" data-r="run" ${loading || !ed.noteId() ? 'disabled' : ''}>${icon(hasRes ? 'refresh' : 'search', 14)}${hasRes ? 'Làm mới' : 'Tìm trên mạng'}</button>
+    ${automationsAvailable(app) && ed.noteId() ? `<button class="btn sm rp-autom" data-r="automate" title="Theo dõi chủ đề, bản tin định kỳ, theo dõi giá/sự kiện">${icon('zap', 14)}Tự động hóa</button>` : ''}
     ${hasRes && !loading ? `<button class="ib rp-x" data-r="dismiss" title="Ẩn kết quả" aria-label="Ẩn kết quả">${icon('x', 15)}</button>` : ''}</div>`;
   host.addEventListener('click', async e => {
     const b = e.target.closest('[data-r]'); if (!b) return;
     const id = ed.noteId(); if (!id) return; const s = st(id); const k = b.dataset.r;
+    if (k === 'automate') { openAutomationDialog(app, { note: ed.saved }); return; }
     if (k === 'run') {
       if (!longEnough(ed.saved || {})) { toast('Ghi chú quá ngắn để tìm — hãy viết thêm về chủ đề rồi Lưu.', { kind: 'info' }); return; }
       if (ed.isDirty?.()) toast('Đang tìm theo bản ĐÃ LƯU của ghi chú (thay đổi chưa lưu không được gửi).', { kind: 'info' });

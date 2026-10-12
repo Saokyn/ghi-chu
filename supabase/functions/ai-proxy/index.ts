@@ -14,7 +14,7 @@
 //  Nếu không gửi api_key, hàm dùng key người dùng đã đồng bộ trong user_ai_settings (RLS: chỉ chủ sở hữu).
 // =====================================================================
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import * as RS from '../_shared/research.js';
+import { RS, MAX_TEXT, HttpError, safeFetch, readLimited, extractReadable, DEFAULT_BASE, SHARED_MAX_TOKENS, EXTRA_HEADERS, STREAM_FIRST_MS, STREAM_RETRY_MS, LimitError, sharedChat, searchAll, fetchSources, summarize, searchConfigError, sharedReady, todayVN } from '../_shared/webcore.ts';
 
 // Nguồn được phép gọi (CORS): ALLOWED_ORIGINS="https://a.github.io,http://127.0.0.1:5180" (hoặc ALLOWED_ORIGIN cũ).
 // Không đặt → cho mọi nguồn ("*"). Yêu cầu từ trình duyệt có Origin khác danh sách bị từ chối 403.
@@ -31,115 +31,8 @@ const json = (obj: unknown, status = 200) =>
 
 const TIMEOUT_MS = 60_000;          // gọi AI
 const FETCH_TIMEOUT_MS = 15_000;
-const STREAM_FIRST_MS = 12_000, STREAM_RETRY_MS = 20_000;     // stream AI: chờ nhà cung cấp bắt đầu trả lời (12 s, thử lại 1 lần 20 s); luồng sau đó chạy tới giới hạn của Edge Function    // đọc trang web
 const MAX_PAGE_BYTES = 3_000_000;   // tối đa 3 MB HTML
 const MAX_BODY_BYTES = 400_000;     // body gửi lên tối đa ~400 KB
-const MAX_TEXT = 30_000;
-
-// ---------- Chặn SSRF: chỉ http(s) công khai ----------
-function isPrivateIp(ip: string): boolean {
-  const v = ip.replace(/^\[|\]$/g, '').toLowerCase();
-  if (v.includes(':')) {
-    if (v === '::1' || v === '::' ) return true;
-    if (v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80')) return true;
-    const m = v.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/); if (m) return isPrivateIp(m[1]);
-    return false;
-  }
-  const p = v.split('.').map(Number);
-  if (p.length !== 4 || p.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-  const [a, b] = p;
-  return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
-}
-const DNS_CACHE = new Map<string, { addrs: string[]; until: number }>();
-async function assertPublicUrl(raw: string, { httpsOnly = false } = {}): Promise<URL> {
-  let u: URL;
-  try { u = new URL(raw); } catch { throw new HttpError(400, 'URL không hợp lệ'); }
-  if (!(u.protocol === 'https:' || (!httpsOnly && u.protocol === 'http:'))) throw new HttpError(400, httpsOnly ? 'Chỉ chấp nhận URL https://' : 'Chỉ chấp nhận URL http(s)://');
-  if (u.username || u.password) throw new HttpError(400, 'URL không được chứa thông tin đăng nhập');
-  if (u.port && !['80', '443', '8080', '8443'].includes(u.port)) throw new HttpError(400, 'Cổng không được phép');
-  const host = u.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host === 'metadata.google.internal')
-    throw new HttpError(400, 'Không được gọi tới địa chỉ nội bộ');
-  if (/^[\d.]+$/.test(host) || host.includes(':')) { if (isPrivateIp(host)) throw new HttpError(400, 'Không được gọi tới địa chỉ nội bộ'); return u; }
-  try {
-    // A + AAAA song song, có giới hạn thời gian (DNS tên miền .cn từ edge ~0.2–0.5 s mỗi loại).
-    const cached = DNS_CACHE.get(host);
-    const addrs = cached && cached.until > Date.now() ? cached.addrs : (await Promise.all((['A', 'AAAA'] as const).map(t =>
-      Promise.race([Deno.resolveDns(host, t).catch(() => [] as string[]), new Promise<string[]>(r => setTimeout(() => r([]), 2000))])))).flat();
-    if (addrs.length) DNS_CACHE.set(host, { addrs, until: Date.now() + 60_000 });
-    if (!addrs.length) throw new HttpError(400, 'Không phân giải được tên miền ' + host);
-    // ALLOW_FAKE_IP_DNS=1 chỉ dùng khi chạy thử ở máy có DNS "fake-IP" (trả về 198.18.0.0/15). KHÔNG bật khi deploy.
-    const fakeIpOk = Deno.env.get('ALLOW_FAKE_IP_DNS') === '1';
-    const bad = addrs.filter(a => isPrivateIp(a) && !(fakeIpOk && /^198\.1[89]\./.test(a)));
-    if (bad.length) throw new HttpError(400, 'Tên miền trỏ tới địa chỉ nội bộ');
-  } catch (e) { if (e instanceof HttpError) throw e; /* resolveDns không khả dụng → bỏ qua, vẫn còn chặn theo tên */ }
-  return u;
-}
-class HttpError extends Error { constructor(public status: number, msg: string) { super(msg); } }
-
-async function fetchWithTimeout(url: string, init: RequestInit, ms: number) {
-  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
-  try { return await fetch(url, { ...init, signal: ac.signal, redirect: 'manual' }); }
-  catch (e) { if ((e as Error).name === 'AbortError') throw new HttpError(504, 'Hết thời gian chờ (' + ms / 1000 + 's)'); throw e; }
-  finally { clearTimeout(t); }
-}
-/** fetch tự đi theo redirect nhưng kiểm tra SSRF ở mỗi bước (tối đa 5). */
-async function safeFetch(url: string, init: RequestInit, ms: number, opts = { httpsOnly: false }) {
-  let cur = url;
-  for (let i = 0; i < 6; i++) {
-    await assertPublicUrl(cur, opts);
-    const res = await fetchWithTimeout(cur, init, ms);
-    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
-      cur = new URL(res.headers.get('location')!, cur).href; await res.body?.cancel(); continue;
-    }
-    return res;
-  }
-  throw new HttpError(508, 'Quá nhiều lần chuyển hướng');
-}
-async function readLimited(res: Response, max: number): Promise<string> {
-  const reader = res.body?.getReader(); if (!reader) return '';
-  const chunks: Uint8Array[] = []; let size = 0;
-  while (true) {
-    const { done, value } = await reader.read(); if (done) break;
-    size += value.byteLength; if (size > max) { await reader.cancel(); break; }
-    chunks.push(value);
-  }
-  const buf = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0)); let o = 0;
-  for (const c of chunks) { buf.set(c, o); o += c.byteLength; }
-  const ct = res.headers.get('content-type') || ''; const cs = /charset=([\w-]+)/i.exec(ct)?.[1] || 'utf-8';
-  try { return new TextDecoder(cs).decode(buf); } catch { return new TextDecoder().decode(buf); }
-}
-
-// ---------- Trích nội dung dễ đọc từ HTML (không cần DOM) ----------
-const ENT: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
-const decode = (s: string) => s.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (m, e: string) => {
-  if (e[0] === '#') { const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return Number.isFinite(n) ? String.fromCodePoint(n) : m; }
-  return ENT[e.toLowerCase()] ?? m;
-});
-function metaOf(html: string, name: string): string {
-  const re = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*>`, 'i');
-  const tag = html.match(re)?.[0]; if (!tag) return '';
-  return decode(tag.match(/content=["']([^"']*)["']/i)?.[1] ?? '').trim();
-}
-function extractReadable(html: string, pageUrl: string) {
-  const title = metaOf(html, 'og:title') || decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').trim();
-  const description = metaOf(html, 'og:description') || metaOf(html, 'description');
-  let image = metaOf(html, 'og:image'); try { if (image) image = new URL(image, pageUrl).href; } catch { image = ''; }
-  const site = metaOf(html, 'og:site_name') || new URL(pageUrl).hostname.replace(/^www\./, '');
-  let body = html.replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style|noscript|svg|iframe|template|nav|header|footer|aside|form)\b[\s\S]*?<\/\1>/gi, ' ');
-  const toText = (h: string) => decode(h
-      .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article|\/blockquote)\b[^>]*>/gi, '\n')
-      .replace(/<li\b[^>]*>/gi, '\n• ')
-      .replace(/<[^>]+>/g, ' '))
-    .replace(/[ \t\u00a0]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  // Ưu tiên <article> (bài viết), rồi <main>, rồi <body>; nếu phần ưu tiên quá ngắn (trang chủ, trang danh mục) thì lấy phần dài hơn.
-  const cands = [body.match(/<article\b[\s\S]*?<\/article>/i)?.[0], body.match(/<main\b[\s\S]*?<\/main>/i)?.[0], body.match(/<body\b[\s\S]*<\/body>/i)?.[0] || body]
-    .filter(Boolean).map(h => toText(h as string));
-  const text = cands.find(t => t.length >= 600) || cands.sort((a, b) => b.length - a.length)[0] || '';
-  return { title, description, image, site, url: pageUrl, text: text.slice(0, MAX_TEXT) };
-}
 
 // ---------- Nhà cung cấp ----------
 function modelsUrl(base: string): string {
@@ -147,17 +40,9 @@ function modelsUrl(base: string): string {
   return base + '/models';
 }
 // Base URL mặc định (giống app/js/ai/providers.js) — dùng khi cấu hình AI chung để trống Base URL
-const DEFAULT_BASE: Record<string, string> = {
-  xai: 'https://api.x.ai/v1', intern: 'https://chat.intern-ai.org.cn/api/v1', discovery: 'https://discovery-api.intern-ai.org.cn/v1',
-  cloudflare: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1', gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
-  groq: 'https://api.groq.com/openai/v1', openrouter: 'https://openrouter.ai/api/v1',
-};
-const SHARED_MAX_TOKENS = 2000;
 /** Lỗi thân thiện (client hiện nguyên câu, không thêm "HTTP …"). */
 const friendly = (status: number, msg: string, code = '') => json({ status, data: { error: msg, code, friendly: true } });
-const EXTRA_HEADERS: Record<string, Record<string, string>> = {
-  openrouter: { 'HTTP-Referer': 'https://github.com', 'X-Title': 'Ghi Chu' },
-};
+
 
 Deno.serve(async (req) => {
   const origin = req.headers.get('Origin');
@@ -285,6 +170,7 @@ async function handle(req: Request): Promise<Response> {
   }
 }
 
+
 // =====================================================================
 //  Tìm thông tin liên quan trên mạng cho một ghi chú (pha 6)
 //  1) đọc ghi chú bằng quyền của người dùng (RLS) — chỉ chữ, không ảnh
@@ -292,13 +178,11 @@ async function handle(req: Request): Promise<Response> {
 //  4) đọc các trang đầu (chặn SSRF)  5) AI tóm tắt tiếng Việt, chỉ trích dẫn [n] của trang đã đọc
 //  6) lưu note_research (chỉ service_role ghi được). Mỗi lần: 1 lượt tìm/ngày + 2 lượt AI dùng chung.
 // =====================================================================
-const RS_SEARCH_MS = 10_000, RS_PAGE_MS = 7_000, RS_PAGE_BYTES = 1_500_000, RS_MAX_TOKENS = 1200;
-const todayVN = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const svcClient = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 
 async function research(sb: any, uid: string, noteId: string): Promise<Response> {
   if (!/^[0-9a-f-]{36}$/i.test(noteId)) throw new HttpError(400, 'note_id không hợp lệ');
-  const svc = svcClient(); AI_DIAG.length = 0;
+  const svc = svcClient(); const diag: string[] = [];
   const [{ data: cfg }, { data: shared }, { data: prof }, { data: note }] = await Promise.all([
     svc.from('web_research').select('*').eq('id', 1).maybeSingle(),
     svc.from('shared_ai').select('*').eq('id', 1).maybeSingle(),
@@ -307,10 +191,9 @@ async function research(sb: any, uid: string, noteId: string): Promise<Response>
   ]);
   if (!note) return friendly(404, 'Không tìm thấy ghi chú (hoặc ghi chú chưa được lưu).', 'no_note');
   if (!(prof?.role === 'admin' || cfg?.enabled)) return friendly(403, 'Quản trị viên chưa bật tính năng “Tìm trên mạng” cho tài khoản của bạn.', 'research_off');
-  if (!shared?.enabled || !shared.provider || !shared.model || !shared.api_key) return friendly(503, 'Cần AI dùng chung để tìm trên mạng — quản trị viên chưa bật AI dùng chung.', 'shared_off');
+  if (!sharedReady(shared)) return friendly(503, 'Cần AI dùng chung để tìm trên mạng — quản trị viên chưa bật AI dùng chung.', 'shared_off');
+  const cfgErr = searchConfigError(cfg); if (cfgErr) return friendly(503, cfgErr, 'no_search_key');
   const provider = String(cfg?.provider || 'auto');
-  if (provider !== 'auto' && provider !== 'searxng' && !cfg?.api_key) return friendly(503, 'Quản trị viên chưa nhập API key cho công cụ tìm kiếm.', 'no_search_key');
-  if (provider === 'searxng' && !cfg?.base_url) return friendly(503, 'Quản trị viên chưa nhập địa chỉ SearXNG.', 'no_search_key');
   const text = RS.researchText(note);
   if (text.replace(/\s/g, '').length < RS.MIN_TEXT) return friendly(400, 'Ghi chú quá ngắn để tìm — hãy viết thêm vài chữ về chủ đề.', 'too_short');
   const hash = await RS.hashText(text);
@@ -321,57 +204,27 @@ async function research(sb: any, uid: string, noteId: string): Promise<Response>
 
   const secrets = [shared.api_key, cfg?.api_key].filter((k: string) => k && k.length >= 8);
   const scrub = (m: string) => secrets.reduce((a: string, k: string) => a.split(k).join('***'), String(m || ''));
+  const save = (extra: Record<string, unknown>) => saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, model: shared.model, ...extra });
   try {
-    const today = todayVN();
-    // 2) truy vấn
-    const qOut = await sharedChat(svc, uid, shared, RS.queryMessages(text, today), 300, 50_000); // đã tắt “suy nghĩ” → câu trả lời ngắn, xong nhanh
+    // 1) truy vấn (đã tắt “suy nghĩ” → trả lời ngắn)  2) tìm  3) đọc trang  4) tóm tắt có trích dẫn
+    const qOut = await sharedChat(svc, uid, shared, RS.queryMessages(text, todayVN()), 300, 50_000, diag);
     const queries = RS.parseQueries(qOut, text);
-    const trace: Record<string, unknown> = { queries_from: /"queries"/.test(qOut) ? 'ai' : qOut ? 'ai_text' : 'fallback', search: [] as unknown[] };
-    // 3) tìm
-    const lists: any[][] = []; let used = '';
-    for (const q of queries) { const r = await searchOnce(provider, cfg, q); lists.push(r.results); used = used || (r.results.length ? r.provider : ''); (trace.search as unknown[]).push({ provider: r.provider, n: r.results.length, ...(r.note ? { note: r.note } : {}) }); }
-    const found = RS.mergeResults(lists, RS.MAX_SOURCES);
-    if (!found.length) {
-      const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
-      return json({ status: 200, data: { ...row, empty: true, trace: { ...trace, ai: AI_DIAG.slice() } } });
-    }
-    // 4) đọc trang (song song, tối đa MAX_FETCH)
-    const pages = await Promise.all(found.slice(0, RS.MAX_FETCH).map(async (r: any) => {
-      try {
-        const res = await safeFetch(r.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GhiChuBot/1.0; +https://saokyn.github.io/ghi-chu/)', Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9', 'Accept-Language': 'vi,en;q=0.8' } }, RS_PAGE_MS);
-        const ct = res.headers.get('content-type') || '';
-        if (!res.ok || !/text\/html|xhtml|text\/plain/i.test(ct)) { await res.body?.cancel(); return null; }
-        const html = await readLimited(res, RS_PAGE_BYTES);
-        const ex = /text\/plain/i.test(ct) ? { title: '', text: html } : extractReadable(html, res.url || r.url);
-        return { title: ex.title, text: ex.text, date: /text\/plain/i.test(ct) ? null : RS.pageDate(html) };
-      } catch { return null; }
-    }));
-    // Nguồn = kết quả có nội dung thật (trang đọc được, hoặc đoạn trích của công cụ tìm kiếm). Không có nội dung → bỏ.
-    const sources = found.map((r: any, i: number) => {
-      const pg = i < pages.length ? pages[i] : null; const okPage = !!(pg && pg.text && pg.text.length >= 200);
-      const excerpt = okPage ? RS.excerptFor(pg!.text, queries) : r.snippet;
-      return { title: (r.title || pg?.title || RS.domainOf(r.url)).slice(0, 200), url: r.url, domain: RS.domainOf(r.url), date: pg?.date || r.date || null, fetched: okPage, excerpt, snippet: r.snippet };
-    }).filter((s: any) => s.excerpt && s.excerpt.length >= 40).slice(0, RS.MAX_SOURCES);
-    if (!sources.length) {
-      const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
-      return json({ status: 200, data: { ...row, empty: true, trace: { ...trace, ai: AI_DIAG.slice() } } });
-    }
-    // 5) tóm tắt có trích dẫn
-    const sOut = await sharedChat(svc, uid, shared, RS.summaryMessages(text, sources, today), RS_MAX_TOKENS, 75_000);
-    const { summary, cited } = RS.cleanSummary(sOut, sources.length);
-    if (!summary) { console.warn('research: tóm tắt rỗng', AI_DIAG.join(' | ')); throw new HttpError(502, 'AI không trả về bản tóm tắt — hãy thử lại.'); }
-    if (!cited.length) { // AI kết luận không có nguồn liên quan (hoặc không trích dẫn được) → không hiện nguồn không liên quan
-      const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary: '', sources: [], provider: used || provider, model: shared.model });
-      return json({ status: 200, data: { ...row, empty: true, trace: { ...trace, uncited: sources.length, ai: AI_DIAG.slice() } } });
-    }
-    const stored = sources.map((s: any, i: number) => ({ n: i + 1, title: s.title, url: s.url, domain: s.domain, date: s.date, fetched: s.fetched, cited: cited.includes(i + 1) }));
-    const row = await saveResearch(svc, { note_id: noteId, user_id: uid, content_hash: hash, queries, summary, sources: stored, provider: used || provider, model: shared.model });
-    trace.fetched = sources.filter((x: any) => x.fetched).length; trace.ai = AI_DIAG.slice();
-    return json({ status: 200, data: { ...row, trace } });
+    const { found, used, log } = await searchAll(provider, cfg, queries);
+    const trace: Record<string, unknown> = { queries_from: /"queries"/.test(qOut) ? 'ai' : qOut ? 'ai_text' : 'fallback', search: log };
+    const empty = async (more: Record<string, unknown> = {}) => json({ status: 200, data: { ...(await save({ queries, summary: '', sources: [], provider: used })), empty: true, trace: { ...trace, ...more, ai: diag } } });
+    if (!found.length) return await empty();
+    const sources = await fetchSources(found, queries);
+    if (!sources.length) return await empty();
+    const { summary, cited, stored } = await summarize(svc, uid, shared, text, sources, diag);
+    if (!summary) { console.warn('research: tóm tắt rỗng', diag.join(' | ')); throw new HttpError(502, 'AI không trả về bản tóm tắt — hãy thử lại.'); }
+    // AI kết luận không có nguồn liên quan (hoặc không trích dẫn được) → không hiện nguồn không liên quan
+    if (!cited.length) return await empty({ uncited: sources.length });
+    const row = await save({ queries, summary, sources: stored, provider: used });
+    return json({ status: 200, data: { ...row, trace: { ...trace, fetched: sources.filter((x: any) => x.fetched).length, ai: diag } } });
   } catch (e) {
-    if (e instanceof Response) return e;
     const msg = scrub((e as Error).message);
-    if (e instanceof HttpError) return json({ status: e.status, data: { error: msg, code: 'research_error', friendly: true, diag: AI_DIAG.slice(-4) } });
+    if (e instanceof LimitError) return friendly(429, msg, e.code);
+    if (e instanceof HttpError) return json({ status: e.status, data: { error: msg, code: 'research_error', friendly: true, diag: diag.slice(-4) } });
     console.error('research', msg);
     return friendly(502, 'Tìm trên mạng bị lỗi: ' + msg, 'research_error');
   }
@@ -380,96 +233,4 @@ async function saveResearch(svc: any, row: Record<string, unknown>) {
   const { data, error } = await svc.from('note_research').upsert({ ...row, updated_at: new Date().toISOString() }, { onConflict: 'note_id' }).select('*').single();
   if (error) throw new Error('Không lưu được kết quả: ' + error.message);
   return data;
-}
-/** Gọi AI dùng chung qua STREAM — mỗi lần tính 1 lượt. Không có byte đầu sau 12 s (Intern/Discovery treo) → gửi lại 1 lần (20 s);
- *  sau đó đọc luồng tới hạn chót `budgetMs` (hết giờ mà đã có chữ → dùng phần đã có). Trả rỗng → hỏi lại 1 lần “trả lời ngay”. */
-const AI_DIAG: string[] = [];
-async function sharedChat(svc: any, uid: string, shared: any, messages: any[], maxTokens: number, budgetMs = 45_000): Promise<string> {
-  const provider = shared.provider, deadline = Date.now() + budgetMs;
-  let base = String(shared.base_url || DEFAULT_BASE[provider] || '').replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
-  if (base.includes('{ACCOUNT_ID}') && shared.account_id) base = base.split('{ACCOUNT_ID}').join(encodeURIComponent(shared.account_id));
-  const qwen = /qwen/i.test(shared.model);
-  const one = async (msgs: any[]) => {
-    const { data: take, error } = await svc.rpc('shared_ai_take', { uid });
-    if (error) throw new Error('Không kiểm tra được hạn mức AI: ' + error.message);
-    if (!take?.ok) throw friendly(429, take?.reason === 'hour' ? `Bạn đã dùng hết ${take.limit} lượt AI dùng chung trong 1 giờ.` : `Bạn đã dùng hết ${take?.limit} lượt AI dùng chung hôm nay.`, 'shared_limit');
-    const body: Record<string, unknown> = { model: shared.model, max_tokens: Math.min(maxTokens, SHARED_MAX_TOKENS), temperature: 0.2, stream: true };
-    if (provider === 'intern' && /^intern-s/.test(shared.model)) body.thinking_mode = false;
-    // Qwen3 trên máy chủ kiểu vLLM/DashScope: tắt “suy nghĩ” (bỏ qua nếu máy chủ không hỗ trợ) — /no_think trong lời nhắc không đủ với qwen3.8
-    if (qwen) { body.chat_template_kwargs = { enable_thinking: false }; body.enable_thinking = false; }
-    body.messages = msgs; // messages cuối body (Intern/Discovery)
-    // Mỗi lần thử dùng KẾT NỐI MỚI: khi một kết nối giữ sẵn (keep-alive) tới Discovery bị treo, gửi lại trên cùng kết nối cũng treo.
-    const mk = (Deno as any).createHttpClient;
-    const call = (ms: number) => {
-      let client: any = null; try { client = mk ? mk({ poolMaxIdlePerHost: 0, http2: false }) : null; } catch { client = null; }
-      return safeFetch(base + '/chat/completions', { method: 'POST', ...(client ? { client } : {}), headers: { Authorization: 'Bearer ' + shared.api_key, 'Content-Type': 'application/json', Accept: 'text/event-stream', Connection: 'close', ...(EXTRA_HEADERS[provider] || {}) }, body: JSON.stringify(body) } as RequestInit, ms, { httpsOnly: true });
-    };
-    if (!AI_DIAG.includes('hc')) AI_DIAG.push(mk ? 'hc' : 'no-hc');
-    let res!: Response;
-    // Treo trước byte đầu → chờ lâu 1 lần (40 s) rồi gửi lại 1 lần nếu còn thời gian. Đo 10/2026: Discovery dường như xử lý tuần tự
-    // theo key — yêu cầu bị bỏ dở vẫn chạy phía họ, nên gửi lại dồn dập chỉ làm hàng đợi dài thêm.
-    for (let k = 0, waits = [40_000, 20_000]; ; k++) {
-      const ms = Math.min(waits[Math.min(k, 1)], deadline - Date.now()); // đo 10/2026: treo thường kéo dài cả chục giây, chờ lâu 1 lần tốt hơn nhiều lần ngắn
-      if (ms < 4000 || k >= 2) throw new HttpError(504, 'AI dùng chung đang quá tải, không phản hồi (đã thử ' + k + ' lần) — hãy thử lại sau ít phút.');
-      try { res = await call(ms); break; } catch (e) { if (!(e instanceof HttpError && e.status === 504)) throw e; AI_DIAG.push('stall ' + Math.round(ms / 1000) + 's'); }
-    }
-    const ct = res!.headers.get('content-type') || '';
-    if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
-      const t = await readLimited(res, 2_000_000); let j: any = null; try { j = JSON.parse(t); } catch { /* */ }
-      if (!res.ok) throw new HttpError(502, 'AI dùng chung lỗi HTTP ' + res.status + ': ' + String(j?.error?.message || j?.message || t).slice(0, 200));
-      return String(j?.choices?.[0]?.message?.content || '');
-    }
-    const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '', text = '', think = 0, fin = '';
-    for (;;) {
-      const left = deadline - Date.now(); if (left <= 0) { await rd.cancel().catch(() => {}); if (text) break; throw new HttpError(504, 'AI dùng chung trả lời quá chậm'); }
-      const r = await Promise.race([rd.read(), new Promise<{ timeout: true }>(ok => setTimeout(() => ok({ timeout: true }), left))]) as any;
-      if (r.timeout) continue;
-      if (r.done) break;
-      buf += dec.decode(r.value, { stream: true }); let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!line.startsWith('data:')) continue; const d = line.slice(5).trim(); if (d === '[DONE]') continue;
-        let j: any; try { j = JSON.parse(d); } catch { continue; }
-        if (j?.error) throw new HttpError(502, 'AI dùng chung lỗi: ' + String(j.error.message || j.error).slice(0, 200));
-        const ch = j?.choices?.[0]; const piece = ch?.delta?.content; if (piece) text += piece; // bỏ reasoning_content
-        think += String(ch?.delta?.reasoning_content || ch?.delta?.reasoning || '').length; if (ch?.finish_reason) fin = ch.finish_reason;
-      }
-    }
-    AI_DIAG.push(`think=${think} fin=${fin || '-'} len=${text.length}`);
-    return text;
-  };
-  const strip = (t: string) => t.replace(/<(mm:)?think>[\s\S]*?(<\/(mm:)?think>|$)/gi, '').trim();
-  const withNoThink = (ms: any[]) => { const m2 = ms.map((m: any) => ({ ...m })); m2[m2.length - 1].content += qwen ? ' /no_think' : ''; return m2; };
-  let out = strip(await one(withNoThink(messages)));
-  if (!out && Date.now() < deadline - 5000) {
-    const m2 = withNoThink(messages); m2[m2.length - 1].content += '\n\n(Trả lời ngắn gọn, trực tiếp; không cần suy luận dài.)';
-    out = strip(await one(m2));
-  }
-  return out;
-}
-async function getJson(req: { url: string; init: RequestInit }, opts = { httpsOnly: true }) {
-  const res = await safeFetch(req.url, req.init, RS_SEARCH_MS, opts);
-  const t = await readLimited(res, 3_000_000);
-  if (!res.ok) throw new HttpError(502, 'Công cụ tìm kiếm trả về HTTP ' + res.status);
-  try { return JSON.parse(t); } catch { throw new HttpError(502, 'Công cụ tìm kiếm trả về dữ liệu không hợp lệ'); }
-}
-/** Một truy vấn → { provider (thực dùng), results }. 'auto': DuckDuckGo (lite) → Wikipedia tiếng Việt → Wikipedia tiếng Anh. */
-async function searchOnce(provider: string, cfg: any, q: string): Promise<{ provider: string; results: any[]; note?: string }> {
-  if (provider === 'tavily') return { provider, results: RS.parseTavily(await getJson(RS.tavilyRequest(q, cfg.api_key))) };
-  if (provider === 'brave') return { provider, results: RS.parseBrave(await getJson(RS.braveRequest(q, cfg.api_key))) };
-  if (provider === 'serper') return { provider, results: RS.parseSerper(await getJson(RS.serperRequest(q, cfg.api_key))) };
-  if (provider === 'searxng') return { provider, results: RS.parseSearx(await getJson(RS.searxRequest(q, cfg.base_url, cfg.api_key || ''))) };
-  let note = '';
-  try {
-    const r = RS.ddgLiteRequest(q); const res = await safeFetch(r.url, r.init, RS_SEARCH_MS, { httpsOnly: true });
-    const html = await readLimited(res, 1_000_000);
-    const out = res.status === 200 ? RS.parseDdgLite(html) : [];
-    if (out.length) return { provider: 'duckduckgo', results: out.slice(0, 6) };
-    note = 'ddg ' + res.status + ' 0';
-  } catch (e) { note = 'ddg ' + ((e as any).code || (e as Error).message).slice(0, 60); }
-  for (const lang of ['vi', 'en']) {
-    try { const out = RS.parseWiki(await getJson(RS.wikiRequest(q, lang)), lang); if (out.length) return { provider: 'wikipedia', results: out, note }; note += ` · wiki-${lang} 0`; }
-    catch (e) { note += ` · wiki-${lang} ${(e as Error).message.slice(0, 40)}`; }
-  }
-  return { provider: 'wikipedia', results: [], note };
 }

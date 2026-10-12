@@ -7,6 +7,7 @@ import { $, $$, esc, toast, copyText, fold, initials, imageFromPaste, debounce }
 import { icon } from './icons.js';
 import { formatDateTime, setLunarStamps } from './format.js';
 import { clockHTML, startClock, openCalendar } from './ui/calendar.js';
+import { loadAutomations, renderAutomations, unreadCount, automationsAvailable } from './ui/automations.js';
 import { loadReminders, renderReminders, openReminderDialog, startReminderTicker, remindersCount, activeReminderOf, syncPushOnEnter, refreshPushState } from './ui/reminders.js';
 import { loadAnnouncements, renderBanner } from './ui/announce.js';
 import { setReminderLookup, setFolderLookup, setShowLocation, locFilterChip } from './ui/notes.js';
@@ -111,7 +112,7 @@ async function enter(u) {
     app.aiSettings = await app.data.ai.get();
     await Promise.all([app.loadSharedAi(), app.loadWebResearch()]);
     app.notes = await app.data.notes.list();
-    await Promise.all([loadReminders(app), loadAnnouncements(app), loadFolders(app)]);
+    await Promise.all([loadReminders(app), loadAnnouncements(app), loadFolders(app), loadAutomations(app)]);
     setLunarStamps(app.prefs.showLunar);
     applyTheme();
     app.entered = true;
@@ -122,7 +123,8 @@ async function enter(u) {
       app.sync = status === 'SUBSCRIBED' ? 'ok' : (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') ? 'off' : 'connecting';
       updateSync();
     });
-    app.unsubRem?.(); app.unsubAnn?.(); app.unsubFold?.();
+    app.unsubRem?.(); app.unsubAnn?.(); app.unsubFold?.(); app.unsubAuto?.();
+    app.unsubAuto = automationsAvailable(app) ? app.data.automations.subscribe(() => app.reloadAutomations()) : null;
     app.unsubFold = app.data.folders?.subscribe(() => app.reloadFolders());
     app.unsubRem = app.data.reminders?.subscribe(() => app.reloadReminders());
     app.unsubAnn = app.data.announcements?.subscribe(() => app.onAnnouncementsChanged());
@@ -136,7 +138,7 @@ async function enter(u) {
   } finally { app._entering = null; }
 }
 function leave() {
-  app.unsub?.(); app.unsub = null; app.unsubRem?.(); app.unsubRem = null; app.unsubAnn?.(); app.unsubAnn = null; app.unsubFold?.(); app.unsubFold = null;
+  app.unsub?.(); app.unsub = null; app.unsubRem?.(); app.unsubRem = null; app.unsubAnn?.(); app.unsubAnn = null; app.unsubFold?.(); app.unsubFold = null; app.unsubAuto?.(); app.unsubAuto = null; app.automations = []; app.notifs = []; app.autoCfg = null;
   app.reminders = []; app.announcements = []; app.folders = []; app.filter.day = null; app.filter.folder = null; app.filter.loc = false;
   document.getElementById('ralerts')?.remove();
   app.entered = false; app.user = null; app.notes = []; app.selectedId = null;
@@ -148,7 +150,7 @@ function leave() {
 function showAuth() { renderAuth($('#root'), app); }
 
 /* ============================== điều hướng ============================== */
-const ROUTES = { 'cai-dat': 'settings', 'quan-tri': 'admin', 'nhac-viec': 'reminders' };
+const ROUTES = { 'cai-dat': 'settings', 'quan-tri': 'admin', 'nhac-viec': 'reminders', 'tu-dong-hoa': 'automations' };
 function readRoute() {
   const h = location.hash.replace(/^#\/?/, '').split('/');
   const name = ROUTES[h[0]] || 'notes';
@@ -173,6 +175,7 @@ function navHTML() {
   let h = NAVS.map(([k, ic, l]) => item(k, ic, l, c[k], onNotes && f === k, `data-nav="${k}"`)).join('');
   const rc = remindersCount(app);
   h += `<button class="nav ${r.name === 'reminders' ? 'on' : ''}" data-go="#/nhac-viec" data-tip="Nhắc việc">${icon('bell')}<span class="lb">Nhắc việc</span>${rc ? `<span class="n hot">${rc}</span>` : ''}</button>`;
+  h += autoNavHTML(r);
   h += folderNavHTML(app);
   h += `<div class="sec">Loại ghi chú</div>`;
   h += Object.entries(NOTE_TYPES).map(([k, t]) => item(k, t.icon, t.label, c[k], onNotes && f === k, `data-nav="${k}"`)).join('');
@@ -187,6 +190,16 @@ function navHTML() {
     h += item('ftpl', 'folder', 'Thư mục mẫu', null, r.name === 'admin' && r.tab === 'thu-muc-mau', `data-go="#/quan-tri/thu-muc-mau"`);
   }
   return h;
+}
+function autoNavHTML(r) {
+  if (!automationsAvailable(app)) return '';
+  const n = unreadCount(app);
+  return `<button class="nav ${r.name === 'automations' ? 'on' : ''}" data-go="#/tu-dong-hoa" data-tip="Tự động hóa">${icon('zap')}<span class="lb">Tự động hóa</span>${n ? `<span class="n hot">${n}</span>` : ''}</button>`;
+}
+function autoTopBtn() {
+  if (!automationsAvailable(app)) return '';
+  const n = unreadCount(app);
+  return `<button class="ib au-top-btn" data-go="#/tu-dong-hoa" title="Tự động hóa" aria-label="Tự động hóa${n ? ` (${n} thông báo mới)` : ''}">${icon('zap', 18)}${n ? `<i class="tb-n">${n}</i>` : ''}</button>`;
 }
 function syncHTML(short) {
   const m = { demo: ['demo', 'cloudoff', short ? 'Demo' : 'Chế độ demo · lưu trên máy này'], ok: ['', 'cloud', short ? 'Đã đồng bộ' : 'Đã đồng bộ · thời gian thực'], connecting: ['', 'refresh', short ? 'Đang kết nối' : 'Đang kết nối máy chủ…'], off: ['off', 'cloudoff', short ? 'Mất kết nối' : 'Mất kết nối · đang thử lại'] }[app.sync] || ['', 'cloud', ''];
@@ -225,7 +238,7 @@ function renderShell() {
     </aside>
     <main class="main">
       <div class="mtop">
-        <div class="hd">${logoHTML(s, 17)}<b>${wordmarkHTML(s.app_name)}</b>${clockHTML(true)}${syncHTML(true)}${themeBtnHTML()}<button class="av" data-go="#/cai-dat/tai-khoan" title="Tài khoản">${esc(initials(u.email))}</button></div>
+        <div class="hd">${logoHTML(s, 17)}<b>${wordmarkHTML(s.app_name)}</b>${clockHTML(true)}${syncHTML(true)}${autoTopBtn()}${themeBtnHTML()}<button class="av" data-go="#/cai-dat/tai-khoan" title="Tài khoản">${esc(initials(u.email))}</button></div>
         ${r.name === 'notes' ? `<div class="search">${icon('search', 18)}<input type="search" data-search placeholder="Tìm ghi chú…" value="${searchVal}" aria-label="Tìm ghi chú"></div><div id="mfbar">${folderBarHTML(app)}</div>` : ''}
       </div>
       <header class="top">
@@ -262,6 +275,7 @@ function renderContent() {
   if (r.name === 'settings') { renderSettings(el, app, r.tab || 'ai'); return; }
   if (r.name === 'admin') { renderAdmin(el, app, r.tab || 'giao-dien'); return; }
   if (r.name === 'reminders') { renderReminders(el, app); return; }
+  if (r.name === 'automations') { renderAutomations(el, app); return; }
   const view = isMobile() && app.effectiveView() === 'twopane' ? 'list' : app.effectiveView();
   el.innerHTML = notesAreaHTML(app, view);
   hydrateImages(el, app);
@@ -427,6 +441,13 @@ app.onRemindersChanged = (quiet = false) => {
   if (app.route.name === 'reminders') { const el = $('#content'); if (el && !el.querySelector('.snz .smenu:not([hidden])')) renderReminders(el, app); }
   else if (app.route.name === 'notes') renderList();
 };
+app.onAutomationsChanged = () => {
+  if (!app.entered) return;
+  const nav = $('#nav'); if (nav) nav.innerHTML = navHTML();
+  const tb = $('.au-top-btn'); if (tb) tb.outerHTML = autoTopBtn();
+  if (app.route.name === 'automations') { const el = $('#content'); if (el && !el.closest('body').querySelector('.au-dlg')) renderAutomations(el, app); }
+};
+app.reloadAutomations = debounce(async () => { if (!app.entered) return; await loadAutomations(app); app.onAutomationsChanged(); }, 400);
 app.reloadReminders = debounce(async () => { if (!app.entered) return; await loadReminders(app); app.onRemindersChanged(); }, 300);
 app.onAnnouncementsChanged = debounce(async () => { if (!app.entered) return; await loadAnnouncements(app); renderBanner(app); }, 300);
 // Cài app (PWA): Chrome/Edge/Android báo sự kiện beforeinstallprompt
@@ -437,7 +458,7 @@ app.canInstall = () => !!installEvt;
 app.promptInstall = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; };
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === '127.0.0.1' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
-  navigator.serviceWorker.addEventListener('message', ev => { if (ev.data?.type === 'push') app.reloadReminders?.(); });
+  navigator.serviceWorker.addEventListener('message', ev => { if (ev.data?.type === 'push') { app.reloadReminders?.(); app.reloadAutomations?.(); } });
 }
 app.newNote = (type = 'text', extra = {}) => app.openNote(Object.assign({ _draft: true, type, title: '', content: '', pinned: false, folder_id: app.filter.folder && app.filter.folder !== NONE && app.folders.some(f => f.id === app.filter.folder) ? app.filter.folder : null }, extra));
 

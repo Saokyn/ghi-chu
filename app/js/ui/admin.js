@@ -170,8 +170,9 @@ async function usersPage(el, app) {
 // Admin cài một nhà cung cấp + model + key cho mọi người. Key được gửi thẳng vào hàm admin_set_shared_ai
 // và lưu ở bảng shared_ai (không ai đọc lại được qua API — chỉ Edge Function ai-proxy dùng). Ở đây chỉ hiện 4 ký tự cuối.
 async function sharedAiPage(el, app) {
-  el.innerHTML = `<div class="page" style="max-width:980px"><div class="ph"><h1>AI dùng chung</h1><span class="adm">${icon('shield', 12, 2.6)}ADMIN</span></div><div id="sa"><span class="spin"></span></div><div id="wr"></div></div>`;
+  el.innerHTML = `<div class="page" style="max-width:980px"><div class="ph"><h1>AI dùng chung</h1><span class="adm">${icon('shield', 12, 2.6)}ADMIN</span></div><div id="sa"><span class="spin"></span></div><div id="wr"></div><div id="au"></div></div>`;
   if (app.data.research?.available) webResearchAdmin(el.querySelector('#wr'), app);
+  if (app.data.automations?.available) automationAdmin(el.querySelector('#au'), app);
   const box = el.querySelector('#sa');
   let sh; try { sh = await app.data.sharedAi.get(); } catch (e) { box.innerHTML = `<div class="callout warn">${icon('alert', 16)}<div>Không tải được cấu hình: ${esc(e.message)}</div></div>`; return; }
   const f = { provider: sh.provider || 'discovery', model: sh.model || '', base_url: sh.base_url || '', account_id: sh.account_id || '', api_key: '',
@@ -289,5 +290,49 @@ async function webResearchAdmin(box, app) {
       }
     } catch (err) { toast(err.message, { kind: 'err', ms: 7000 }); }
     busy = false; draw();
+  };
+}
+
+/* ============================== Tự động hóa (Giai đoạn 7) ============================== */
+async function automationAdmin(box, app) {
+  let c, users = [];
+  try { [c, users] = await Promise.all([app.data.automations.settings(), app.data.automations.adminUsers()]); }
+  catch (e) { box.innerHTML = `<div class="callout warn">${icon('alert', 16)}<div>Không tải được cấu hình Tự động hóa: ${esc(e.message)}</div></div>`; return; }
+  if (!c || !Array.isArray(users)) { box.innerHTML = ''; return; }
+  const f = { enabled: !!c.enabled, default_allow: !!c.default_allow, max_per_user: c.max_per_user ?? 5, max_runs_day: c.max_runs_day ?? 12 };
+  let busy = false;
+  const draw = () => {
+    box.innerHTML = `<div class="card" data-au-admin>
+      <div class="ch"><div><h3>${icon('zap', 17)}Tự động hóa</h3><p>Theo dõi chủ đề, bản tin định kỳ, theo dõi giá/sự kiện — chạy trên máy chủ (pg_cron) theo lịch của người dùng, báo qua thông báo đẩy + trong app. Mỗi lượt chạy dùng hạn mức tìm trên mạng và AI dùng chung của người đó.</p></div>
+        ${c.enabled ? `<span class="bdg ok">${icon('check', 12, 3)}Đang bật</span>` : '<span class="bdg mut">Chỉ quản trị viên</span>'}</div>
+      <div class="tr" style="border-top:0;padding-top:0"><div><b>Bật Tự động hóa</b><small>Tắt: chỉ quản trị viên dùng được.</small></div><button class="sw ${f.enabled ? 'on' : ''}" data-au="enabled" role="switch" aria-checked="${f.enabled}" aria-label="Bật Tự động hóa"></button></div>
+      <div class="tr"><div><b>Cho phép mọi người dùng</b><small>Tắt: chỉ những người được bật riêng ở danh sách bên dưới.</small></div><button class="sw ${f.default_allow ? 'on' : ''}" data-au="default_allow" role="switch" aria-checked="${f.default_allow}" aria-label="Cho phép mọi người dùng"></button></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <label class="field" style="max-width:240px"><span class="lbl">Số tự động hóa tối đa / người</span><input class="inp" type="number" min="0" max="50" data-auf="max_per_user" value="${f.max_per_user}"></label>
+        <label class="field" style="max-width:240px"><span class="lbl">Số lượt chạy / người / 24 giờ</span><input class="inp" type="number" min="0" max="200" data-auf="max_runs_day" value="${f.max_runs_day}"></label></div>
+      <div style="display:flex;gap:10px;align-items:center;margin:4px 0 14px"><button class="btn pri" data-au="save" ${busy ? 'disabled' : ''}>${icon('save', 16)}Lưu</button>${c.updated_at ? `<span class="help">Cập nhật ${formatDateTime(c.updated_at)}</span>` : ''}</div>
+      <div class="lbl" style="margin-bottom:6px">Quyền theo người dùng</div>
+      <div class="tbl-wrap"><table class="tbl au-users"><thead><tr><th>Email</th><th class="r">Tự động hóa</th><th class="r">Lượt 24h</th><th class="r">Cho phép</th></tr></thead><tbody>
+        ${users.map(u => `<tr><td>${esc(u.email || u.id)}</td><td class="r">${u.automations}</td><td class="r">${u.runs_day}</td><td class="r">${u.role === 'admin' ? '<span class="muted" style="font-size:12px">Admin · luôn được</span>' : `<button class="sw sm ${u.allow_automations ? 'on' : ''}" data-au-user="${u.id}" data-on="${u.allow_automations ? 1 : 0}" role="switch" aria-checked="${!!u.allow_automations}" aria-label="Cho phép ${esc(u.email || '')}"></button>`}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  };
+  draw();
+  box.oninput = e => { const k = e.target.dataset.auf; if (k) f[k] = Number(e.target.value); };
+  box.onclick = async e => {
+    const ub = e.target.closest('[data-au-user]');
+    if (ub) {
+      const allow = ub.dataset.on !== '1'; ub.disabled = true;
+      try { await app.data.automations.adminAllow(ub.dataset.auUser, allow); users = await app.data.automations.adminUsers(); toast(allow ? 'Đã cho phép Tự động hóa' : 'Đã tắt Tự động hóa cho người này'); }
+      catch (err) { toast(err.message, { kind: 'err' }); }
+      draw(); return;
+    }
+    const a = e.target.closest('[data-au]')?.dataset.au; if (!a) return;
+    if (a === 'enabled' || a === 'default_allow') { f[a] = !f[a]; draw(); return; }
+    if (a === 'save') {
+      busy = true; draw();
+      try { c = await app.data.automations.adminSave(f); toast('Đã lưu cấu hình Tự động hóa'); app.reloadAutomations?.(); }
+      catch (err) { toast(err.message, { kind: 'err', ms: 7000 }); }
+      busy = false; draw();
+    }
   };
 }
