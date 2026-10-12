@@ -143,7 +143,7 @@ async function runOne(a: any, trig: 'cron' | 'manual') {
         const shown = hit.value != null ? AU.fmtVnd(hit.value) : hit.valueText;
         if (alert) {
           const p = AU.pricePush(c, hit, src);
-          data.pushed = await notify(a, { title: p.title, body: `${p.body}\n“${hit.quote.slice(0, 200)}”`, url: src.url, sources: [{ n: 1, title: src.title, url: src.url, domain: src.domain }] });
+          data.pushed = await notify(a, { title: p.title, body: c.op === 'contains' ? p.body : `${p.body}\n“${hit.quote.slice(0, 200)}”`, url: src.url, sources: [{ n: 1, title: src.title, url: src.url, domain: src.domain }] });
           state.last_alert_at = new Date(now).toISOString(); state.last_alert_value = hit.value;
           status = 'alert'; summary = `Đạt điều kiện: ${shown} — ${src.domain}.`;
         } else if (met) { status = 'ok'; summary = `Vẫn đạt điều kiện (${shown}) — đã báo gần đây, chờ ${AU.COOLDOWN_H} giờ để tránh báo lặp.`; }
