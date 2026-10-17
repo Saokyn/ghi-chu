@@ -63,29 +63,64 @@ export function readAsDataURL(blob) {
 function loadImage(src) {
   return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Không đọc được ảnh.')); i.src = src; });
 }
+/** Đọc thẻ EXIF Orientation (1–8) từ đầu file JPEG; 0 nếu không có / không phải JPEG. Thuần, kiểm thử được. */
+export function jpegOrientation(buf) {
+  const v = new DataView(buf instanceof ArrayBuffer ? buf : buf.buffer);
+  if (v.byteLength < 4 || v.getUint16(0) !== 0xFFD8) return 0;
+  let o = 2;
+  while (o + 4 <= v.byteLength) {
+    const m = v.getUint16(o); if ((m & 0xFF00) !== 0xFF00) return 0;
+    const len = v.getUint16(o + 2);
+    if (m === 0xFFE1 && o + 10 <= v.byteLength && v.getUint32(o + 4) === 0x45786966) { // "Exif"
+      const t = o + 10; if (t + 8 > v.byteLength) return 0;
+      const le = v.getUint16(t) === 0x4949; const u16 = x => v.getUint16(x, le), u32 = x => v.getUint32(x, le);
+      const ifd = t + u32(t + 4); if (ifd + 2 > v.byteLength) return 0;
+      const n = u16(ifd);
+      for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; if (e + 10 > v.byteLength) return 0; if (u16(e) === 0x0112) { const val = u16(e + 8); return val >= 1 && val <= 8 ? val : 0; } }
+      return 0;
+    }
+    if (m === 0xFFDA) return 0; // bắt đầu dữ liệu ảnh
+    o += 2 + len;
+  }
+  return 0;
+}
+const hasExif = buf => { const v = new DataView(buf); if (v.byteLength < 4 || v.getUint16(0) !== 0xFFD8) return false; let o = 2; while (o + 4 <= v.byteLength) { const m = v.getUint16(o); if ((m & 0xFF00) !== 0xFF00 || m === 0xFFDA) return false; if (m === 0xFFE1) return true; o += 2 + v.getUint16(o + 2); } return false; };
+/** Giải mã ảnh, đã xoay đúng theo EXIF (trình duyệt hiện đại tự áp dụng; createImageBitmap 'from-image' khi có). */
+async function decodeImage(file, src) {
+  if (typeof createImageBitmap === 'function') {
+    try { const bm = await createImageBitmap(file, { imageOrientation: 'from-image' }); return { el: bm, w: bm.width, h: bm.height, close: () => bm.close?.() }; } catch { /* dùng <img> */ }
+  }
+  const img = await loadImage(src); return { el: img, w: img.naturalWidth, h: img.naturalHeight, close() {} };
+}
 /**
- * Thu nhỏ/nén ảnh trước khi lưu. Trả về { blob, dataUrl, width, height, type }.
- * maxSide: cạnh dài tối đa. Ảnh nhỏ & nhẹ được giữ nguyên.
+ * Thu nhỏ/nén ảnh trước khi lưu (ảnh chụp từ điện thoại thường 3–8 MB). Trả về { blob, dataUrl, width, height, type, origSize, orientation }.
+ * - maxSide: cạnh dài tối đa; giữ đúng hướng ảnh theo EXIF (xoay sẵn vào điểm ảnh).
+ * - JPEG có EXIF luôn được mã hoá lại → bỏ siêu dữ liệu (kể cả toạ độ GPS) và thẻ xoay, tránh hiển thị sai hướng.
+ * - Ảnh nhỏ, nhẹ, không có EXIF được giữ nguyên.
  */
 export async function prepareImage(file, { maxSide = 1600, quality = 0.85, maxBytes = 900_000 } = {}) {
   if (!file || !String(file.type).startsWith('image/')) throw new Error('File không phải ảnh.');
+  const head = await file.slice(0, 128 * 1024).arrayBuffer();
+  const orientation = jpegOrientation(head), exif = hasExif(head);
   const src = await readAsDataURL(file);
-  const img = await loadImage(src);
-  const w0 = img.naturalWidth, h0 = img.naturalHeight;
+  const im = await decodeImage(file, src);
+  const w0 = im.w, h0 = im.h;
   const scale = Math.min(1, maxSide / Math.max(w0, h0));
-  if (scale === 1 && file.size <= maxBytes && file.type !== 'image/bmp') {
-    return { blob: file, dataUrl: src, width: w0, height: h0, type: file.type };
+  if (scale === 1 && file.size <= maxBytes && file.type !== 'image/bmp' && !exif) {
+    im.close(); return { blob: file, dataUrl: src, width: w0, height: h0, type: file.type, origSize: file.size, orientation };
   }
-  const w = Math.round(w0 * scale), h = Math.round(h0 * scale);
+  const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
   const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d');
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
   const keepAlpha = file.type === 'image/png' || file.type === 'image/webp' || file.type === 'image/gif';
   const type = keepAlpha ? 'image/webp' : 'image/jpeg';
   if (!keepAlpha) { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); }
-  g.drawImage(img, 0, 0, w, h);
-  const blob = await new Promise(r => c.toBlob(r, type, quality));
+  g.drawImage(im.el, 0, 0, w, h); im.close();
+  let q = quality, blob = await new Promise(r => c.toBlob(r, type, q));
+  while (blob && blob.size > maxBytes * 1.5 && q > 0.55) { q -= 0.1; blob = await new Promise(r => c.toBlob(r, type, q)); } // ảnh rất chi tiết: giảm chất lượng dần
+  if (!blob) throw new Error('Không nén được ảnh.');
   const dataUrl = await readAsDataURL(blob);
-  return { blob, dataUrl, width: w, height: h, type };
+  return { blob, dataUrl, width: w, height: h, type, origSize: file.size, orientation };
 }
 export function fileExt(type) { return ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' })[type] || 'png'; }
 

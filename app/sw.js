@@ -3,7 +3,7 @@
 //  - HTML/JS/CSS/manifest/config cùng nguồn: MẠNG TRƯỚC (luôn lấy bản mới khi online), chỉ dùng cache khi mất mạng.
 //  - Ảnh, font, vendor: CACHE TRƯỚC (ít đổi), cập nhật nền.
 //  - Khác nguồn (Supabase API, AI, ảnh link…), POST, Range: KHÔNG đụng tới.
-const CACHE = 'ghichu-v1';
+const CACHE = 'ghichu-v2';
 const PRECACHE = ['./', './index.html', './manifest.webmanifest', './img/logo/icon-192.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)).catch(() => {}).then(() => self.skipWaiting()));

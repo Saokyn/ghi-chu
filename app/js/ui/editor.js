@@ -14,6 +14,8 @@ import { openMovePicker, suggestForNew } from './folders.js';
 import { normLoc, hasLoc, sameLoc, locLabel } from '../geo.js';
 import { openLocationDialog, openMapPreview } from './location.js';
 import { mountResearch, noteSaved as researchNoteSaved } from './research.js';
+import { saveDraft, loadDraft, clearDraft, draftDiffers, draftIdFor } from '../drafts.js';
+import { takePhoto } from './camera.js';
 
 const FIELDS = ['title', 'content', 'url', 'link_meta', 'ai_source', 'image_path'];
 const PLACEHOLDER = {
@@ -40,8 +42,47 @@ export class Editor {
     this.el = document.createElement('div');
     this.el.className = 'editor';
     this.raf = 0;
+    this.uid = app.user?.id || 'anon';
+    this.dkey = draftIdFor(this.saved?.id, this.draftId); // khoá bản nháp cục bộ
+    this.draftAt = null; this.saveFailed = false;
     this.build();
+    this._flush = () => this.flushDraft();
+    this._vis = () => { if (document.visibilityState === 'hidden') this.flushDraft(); };
+    addEventListener('pagehide', this._flush); document.addEventListener('visibilitychange', this._vis);
+    this.offerRecovery();
   }
+  /* ---------- bản nháp cục bộ (tự lưu khi gõ) ---------- */
+  scheduleDraft() { clearTimeout(this._dt); this._dt = setTimeout(() => this.flushDraft(), 800); }
+  flushDraft() {
+    clearTimeout(this._dt); this._dt = 0;
+    if (this.destroyed || this.discarded) return;
+    const textDirty = draftDiffers(this.cur, this.saved); // chỉ nội dung chữ; ảnh mới chưa tải lên không giữ được trong nháp
+    if (textDirty) {
+      if (saveDraft(this.uid, this.dkey, { type: this.type, title: this.cur.title, content: this.cur.content, url: this.cur.url, base: this.saved?.updated_at || null })) { this.draftAt = new Date(); this.refreshState(); }
+    } else if (this.draftAt || loadDraft(this.uid, this.dkey)) { clearDraft(this.uid, this.dkey); this.draftAt = null; }
+  }
+  dropDraft() { clearTimeout(this._dt); clearDraft(this.uid, this.dkey); if (this.saved) clearDraft(this.uid, this.saved.id); this.draftAt = null; }
+  /** Bỏ thay đổi theo yêu cầu người dùng: xoá nháp và không ghi lại khi đóng. */
+  markDiscarded() { this.discarded = true; this.dropDraft(); }
+  offerRecovery() {
+    if (!this.saved) return;
+    const d = loadDraft(this.uid, this.dkey);
+    if (!d || !draftDiffers(d, this.saved)) { if (d) clearDraft(this.uid, this.dkey); return; }
+    const r = this.q('.drbar'); r.hidden = false;
+    const newer = d.base && this.saved.updated_at && d.base !== this.saved.updated_at;
+    r.innerHTML = `${icon('history', 16)}<span>Có bản nháp chưa lưu trên máy này (${formatDateTime(d.at)})${newer ? ' — ghi chú đã được sửa sau đó, khôi phục sẽ thay nội dung hiện tại' : ''}.</span><button class="btn sm pri" data-e="drrestore">Khôi phục</button><button class="btn sm ghost" data-e="drdrop">Bỏ nháp</button>`;
+    this._recover = d;
+  }
+  restoreDraft() {
+    const d = this._recover; if (!d) return;
+    for (const f of ['title', 'content', 'url']) if (f !== 'url' || this.type === 'link') this.cur[f] = d[f] ?? this.cur[f];
+    this.q('.title-in').value = this.cur.title || ''; this.q('.ta').value = this.cur.content || '';
+    if (this.type === 'link') this.renderTypeSection();
+    this.q('.drbar').hidden = true; this._recover = null;
+    this.queueLines(); this.refreshState(); this.flushDraft();
+    toast('Đã khôi phục bản nháp — bấm Lưu để giữ', { kind: 'info' });
+  }
+  touched() { this.saveFailed = false; this.refreshState(); this.scheduleDraft(); }
   noteId() { return this.saved?.id || null; }
   effColor() { return noteColor({ id: this.saved?.id || this.draftId, color: this.color }); }
   applyColor() {
@@ -84,7 +125,7 @@ export class Editor {
     if (!this.ro) { this.ro = new ResizeObserver(() => this.queueLines()); }
     this.ro.observe(this.el.querySelector('.tawrap'));
   }
-  destroy() { this.research?.destroy(); if (this._outside) document.removeEventListener('pointerdown', this._outside, true); this.ro?.disconnect(); cancelAnimationFrame(this.raf); this.el.remove(); this.destroyed = true; }
+  destroy() { if (!this.destroyed) this.flushDraft(); removeEventListener('pagehide', this._flush); document.removeEventListener('visibilitychange', this._vis); this.toggleMore(false); this.research?.destroy(); if (this._outside) document.removeEventListener('pointerdown', this._outside, true); this.ro?.disconnect(); cancelAnimationFrame(this.raf); this.el.remove(); this.destroyed = true; }
   // Không giật con trỏ nếu người dùng đã kịp bấm vào ô khác trong trình soạn (ví dụ ô nhãn) trước khi hẹn giờ chạy
   userFocused() { const a = document.activeElement; return !!a && a !== document.body && this.el.contains(a) && a.matches('input,textarea,select,[contenteditable]'); }
   focusTitle() { setTimeout(() => { if (!this.userFocused()) this.q('.title-in')?.focus(); }, 30); }
@@ -100,16 +141,18 @@ export class Editor {
         ${this.mode === 'modal' ? `<button class="ib" data-e="close" title="Đóng (Esc)" aria-label="Đóng">${icon('left', 18)}</button>` : ''}
         <div class="crumb">${icon(T.icon, 15)}${T.label}${icon('right', 13)}<b class="cr-t"></b></div>
         <div class="sp"></div>
-        <span class="dirty-pill" hidden>Chưa lưu</span>
-        <label class="tg" title="Hiện thời gian lưu của từng dòng"><button class="sw ${lt ? 'on' : ''}" data-e="lt" role="switch" aria-checked="${lt}" aria-label="Hiện thời gian theo dòng"></button><span class="lbt">Hiện thời gian theo dòng</span></label>
+        <span class="svst" data-st="new" role="status" aria-live="polite" hidden></span>
+        <label class="tg eb-d" title="Hiện thời gian lưu của từng dòng"><button class="sw ${lt ? 'on' : ''}" data-e="lt" role="switch" aria-checked="${lt}" aria-label="Hiện thời gian theo dòng"></button><span class="lbt">Hiện thời gian theo dòng</span></label>
         <div class="cpk"><button class="ib cbtn" data-e="color" aria-label="Chọn màu ghi chú" aria-haspopup="true" aria-expanded="false"><span class="cdot"></span></button><div class="cpop" hidden></div></div>
         <button class="ib ed-ai" data-e="ai" title="Hỏi trợ lý AI về ghi chú này (tóm tắt, viết lại, sửa chính tả…)" aria-label="Trợ lý AI">${icon('sparkle', 17)}</button>
-        <button class="ib" data-e="remind" title="Đặt nhắc việc" aria-label="Đặt nhắc việc">${icon('alarm', 17)}</button>
-        <button class="ib" data-e="copy" title="Sao chép văn bản" aria-label="Sao chép">${icon('copy', 17)}</button>
-        <button class="ib ${this.pinned ? 'on' : ''}" data-e="pin" title="Ghim" aria-label="Ghim">${icon('pin', 17)}</button>
-        <button class="ib danger" data-e="del" title="Xoá" aria-label="Xoá">${icon('trash', 17)}</button>
+        <button class="ib eb-d" data-e="remind" title="Đặt nhắc việc" aria-label="Đặt nhắc việc">${icon('alarm', 17)}</button>
+        <button class="ib eb-d" data-e="copy" title="Sao chép văn bản" aria-label="Sao chép">${icon('copy', 17)}</button>
+        <button class="ib eb-d ${this.pinned ? 'on' : ''}" data-e="pin" title="Ghim" aria-label="Ghim">${icon('pin', 17)}</button>
+        <button class="ib eb-d danger" data-e="del" title="Xoá" aria-label="Xoá">${icon('trash', 17)}</button>
+        <div class="eb-m"><button class="ib" data-e="more" title="Thêm thao tác" aria-label="Thêm thao tác" aria-haspopup="menu" aria-expanded="false">${icon('more', 18)}</button><div class="mpop" role="menu" hidden></div></div>
         <button class="save" data-e="save">${icon('save', 15)}Lưu<span class="k">Ctrl S</span></button>
       </div>
+      <div class="drbar" hidden></div>
       <div class="ed-scroll"><div class="doc ${lt ? 'lt' : ''}">
         <div class="meta2"></div>
         <input class="title-in" placeholder="Tiêu đề ghi chú" aria-label="Tiêu đề" maxlength="300">
@@ -125,9 +168,9 @@ export class Editor {
     title.value = this.cur.title || '';
     ta.value = this.cur.content || '';
     ta.placeholder = PLACEHOLDER[this.type] || PLACEHOLDER.text;
-    title.addEventListener('input', () => { this.cur.title = title.value; this.refreshState(); });
+    title.addEventListener('input', () => { this.cur.title = title.value; this.touched(); });
     title.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ta.focus(); } });
-    ta.addEventListener('input', () => { this.cur.content = ta.value; this.queueLines(); this.refreshState(); });
+    ta.addEventListener('input', () => { this.cur.content = ta.value; this.queueLines(); this.touched(); });
     this.el.addEventListener('click', e => this.onClick(e));
     this.el.addEventListener('paste', e => this.onPaste(e));
     this.el.addEventListener('keydown', e => {
@@ -159,6 +202,7 @@ export class Editor {
     if (this.type === 'image') {
       const src = this.pendingImage ? this.pendingImage.dataUrl : '';
       box.innerHTML = `<div class="imgbox"><img alt="Ảnh của ghi chú" ${src ? `src="${src}"` : `data-img="${esc(this.cur.image_path || '')}"`}><div class="ov"><button class="btn sm" data-e="replace">${icon('upload', 15)}Thay ảnh</button></div></div>
+        <div class="imgacts"><button class="btn sm" data-e="replace">${icon('upload', 15)}Chọn ảnh khác</button><button class="btn sm" data-e="camera">${icon('camera', 15)}Chụp ảnh</button></div>
         <input type="file" accept="image/*" hidden data-e="file">
         <div class="help">${icon('clipboard', 13)} Dán ảnh bằng Ctrl+V khi đang mở ghi chú này để thay ảnh.${this.pendingImage ? ' <b style="color:var(--warn)">Ảnh mới chưa lưu.</b>' : ''}</div>`;
       if (!src) hydrateImages(box, this.app);
@@ -171,7 +215,7 @@ export class Editor {
           <button class="ib" data-e="meta" title="Lấy lại tiêu đề, mô tả, ảnh xem trước">${icon('refresh', 16)}</button></div></div>
         ${url ? `<a class="linkcard" href="${esc(url)}" target="_blank" rel="noopener">${m.image ? `<img data-img="${esc(m.image)}" alt="">` : ''}<div class="lc"><div class="dom">${icon('globe', 13)}${esc(m.site || domainOf(url))}</div><b>${esc(m.title || this.cur.title || url)}</b>${m.description ? `<p>${esc(m.description)}</p>` : ''}</div></a>` : ''}`;
       hydrateImages(box, this.app);
-      box.querySelector('[data-f=url]').addEventListener('input', e => { this.cur.url = e.target.value.trim(); this.refreshState(); });
+      box.querySelector('[data-f=url]').addEventListener('input', e => { this.cur.url = e.target.value.trim(); this.touched(); });
       box.querySelector('[data-f=url]').addEventListener('change', () => this.renderTypeSection());
     } else if (this.type === 'ai') {
       const src = String(this.cur.ai_source || ''), url = safeUrl(src);
@@ -219,8 +263,14 @@ export class Editor {
     return false;
   }
   refreshState() {
-    const d = this.isDirty();
-    this.q('.dirty-pill').hidden = !d;
+    const d = this.isDirty(), el = this.q('.svst');
+    const st = this.saving ? 'saving' : d ? (this.saveFailed ? 'failed' : 'dirty') : this.saved ? 'saved' : 'new';
+    const txt = { saving: 'Đang lưu…', dirty: 'Chưa lưu', failed: 'Chưa lưu · nháp trên máy', saved: 'Đã lưu', new: '' }[st];
+    el.dataset.st = st; el.hidden = st === 'new';
+    if (el.textContent !== txt) el.textContent = txt;
+    el.title = st === 'saved' ? 'Đã lưu lúc ' + formatDateTime(this.saved.updated_at)
+      : (st === 'dirty' || st === 'failed') ? (this.draftAt ? 'Bấm Lưu để lưu lên tài khoản. Bản nháp đã được giữ tạm trên máy này lúc ' + this.draftAt.toLocaleTimeString('vi-VN') : 'Có thay đổi chưa lưu — bấm Lưu') : '';
+    this.el.classList.toggle('is-dirty', d);
     this.q('.cr-t').textContent = String(this.cur.title || '').trim() || (this.saved ? titleOf(this.saved) : 'Ghi chú mới');
   }
 
@@ -228,7 +278,13 @@ export class Editor {
   async onClick(e) {
     const b = e.target.closest('[data-e]'); if (!b) return;
     const k = b.dataset.e;
+    if (k !== 'more' && !k.startsWith('m-')) this.toggleMore(false);
     if (k === 'close') this.onRequestClose?.();
+    else if (k === 'more') this.toggleMore();
+    else if (k.startsWith('m-')) { this.toggleMore(false); this.q(`.eb [data-e=${k.slice(2)}]`)?.click(); }
+    else if (k === 'drrestore') this.restoreDraft();
+    else if (k === 'drdrop') { this.dropDraft(); this._recover = null; this.q('.drbar').hidden = true; toast('Đã bỏ bản nháp'); }
+    else if (k === 'camera') takePhoto().then(f => f && !this.destroyed && this.setImage(f));
     else if (k === 'save') this.save();
     else if (k === 'ai') this.app.openChat?.();
     else if (k === 'folder') {
@@ -259,14 +315,31 @@ export class Editor {
         if (!this.isDirty() || await confirmDialog('Bỏ ghi chú mới này?', { okText: 'Bỏ', danger: true })) this.discardDraft();
         return;
       }
-      await this.app.deleteNote(this.saved.id);
+      const id = this.saved.id;
+      await this.app.deleteNote(id);
+      if (!this.app.notes.some(n => n.id === id)) this.markDiscarded();
     } else if (k === 'replace') this.q('[data-e=file]').click();
     else if (k === 'meta') this.fetchMeta();
     else if (k === 'resum') this.resummarize(b);
     else if (k === 'reload') { this.loadFrom(this.remoteNote); this.hideRemote(); }
     else if (k === 'keep') this.hideRemote();
   }
+  toggleMore(open) {
+    const pop = this.q('.mpop'), btn = this.q('[data-e=more]'); if (!pop) return;
+    open = open ?? pop.hidden;
+    if (!open) { if (!pop.hidden) { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); } document.removeEventListener('pointerdown', this._mout, true); return; }
+    const lt = this.q('.eb [data-e=lt]').classList.contains('on'), pin = this.q('.eb [data-e=pin]').classList.contains('on');
+    pop.innerHTML = `<button role="menuitemcheckbox" aria-checked="${lt}" data-e="m-lt">${icon('clock', 16)}<span>Thời gian theo dòng</span><i class="ck">${lt ? icon('check', 15) : ''}</i></button>
+      <button role="menuitem" data-e="m-remind">${icon('alarm', 16)}<span>Đặt nhắc việc</span></button>
+      <button role="menuitem" data-e="m-copy">${icon('copy', 16)}<span>Sao chép văn bản</span></button>
+      <button role="menuitem" data-e="m-pin">${icon('pin', 16)}<span>${pin ? 'Bỏ ghim' : 'Ghim'}</span></button>
+      <button role="menuitem" class="danger" data-e="m-del">${icon('trash', 16)}<span>${this.saved ? 'Xoá ghi chú' : 'Bỏ ghi chú mới'}</span></button>`;
+    pop.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    this._mout = e => { if (!e.target.closest?.('.eb-m')) this.toggleMore(false); };
+    setTimeout(() => document.addEventListener('pointerdown', this._mout, true), 0);
+  }
   discardDraft() {
+    this.markDiscarded();
     this.cur.title = ''; this.cur.content = ''; this.pendingImage = null;
     if (this.mode === 'modal') this.onRequestClose?.(true);
     else { this.app.paneEditor = null; this.destroy(); this.app.renderContent(); }
@@ -319,7 +392,8 @@ export class Editor {
       d.url = u;
     }
     if (this.type === 'image' && !this.pendingImage && !d.image_path) { toast('Ghi chú ảnh cần có ảnh', { kind: 'err' }); return; }
-    this.saving = true; const btn = this.q('[data-e=save]'); btn.disabled = true;
+    this.saving = true; const btn = this.q('[data-e=save]'); btn.disabled = true; this.refreshState();
+    this.flushDraft(); // giữ nháp trên máy phòng khi mất mạng giữa chừng
     try {
       const now = nowIso();
       let oldImage = null;
@@ -331,7 +405,8 @@ export class Editor {
       else note = await this.app.updateNote(this.saved.id, d);
       if (oldImage && oldImage !== note.image_path && !/^(data:|img\/)/.test(oldImage)) this.app.data.images.remove(oldImage).catch(() => {});
       const wasDraft = !this.saved;
-      this.saved = note; this.pendingImage = null;
+      this.saved = note; this.pendingImage = null; this.saveFailed = false; this.saving = false;
+      this.dropDraft(); this.dkey = note.id;
       for (const f of FIELDS) this.cur[f] = note[f] ?? this.cur[f];
       this.renderMeta(); if (this.type !== 'text') this.renderTypeSection(); this.refreshState(); this.queueLines();
       if (wasDraft && this.mode === 'pane') { this.app.selectedId = note.id; this.app.renderList(); }
@@ -340,8 +415,11 @@ export class Editor {
       if (wasDraft) this.research?.refresh(); else this.research?.checkStale();
       researchNoteSaved(this.app, note);
       toast('Đã lưu · ' + formatDateTime(now));
-    } catch (err) { toast('Không lưu được: ' + err.message, { kind: 'err', ms: 6000 }); }
-    finally { this.saving = false; btn.disabled = false; }
+    } catch (err) {
+      this.saveFailed = true;
+      toast('Không lưu được: ' + err.message + ' — nội dung vẫn được giữ trên máy này, hãy thử Lưu lại.', { kind: 'err', ms: 7000 });
+    }
+    finally { this.saving = false; btn.disabled = false; this.refreshState(); }
   }
 
   /* ---------- đồng bộ từ thiết bị khác ---------- */
@@ -351,7 +429,7 @@ export class Editor {
     for (const f of FIELDS) this.cur[f] = n[f] ?? (f === 'title' || f === 'content' ? '' : null);
     this.q('.title-in').value = this.cur.title || ''; this.q('.ta').value = this.cur.content || '';
     this.q('[data-e=pin]').classList.toggle('on', this.pinned);
-    this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.queueLines();
+    this.renderMeta(); this.renderTypeSection(); this.refreshState(); this.queueLines(); this.scheduleDraft();
     this.research?.draw();
   }
   /** Áp dụng nội dung mới (đã được người dùng xem trước & xác nhận) rồi lưu như bình thường — giữ thời gian theo dòng. */

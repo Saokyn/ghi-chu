@@ -5,7 +5,7 @@ export const DEFAULT_APP_SETTINGS = {
   logo_data: null,           // data URL (PNG/SVG/WebP) — nhỏ, đọc được bởi mọi người
   primary_color: '#4f46e5',  // màu chủ đạo (chế độ sáng)
   dark_accent: '#2dd4bf',    // màu nhấn chế độ tối (theo mockup C)
-  font: 'bvp',               // bvp | inter | nunito | lora
+  font: 'bvp',               // phông giao diện mặc định: bvp | lexend | inter | nunito | lora
   default_layout: 'list',    // list | grid | twopane
   default_theme: 'light',    // light | dark | system
   radius: 14,                // 0–24 px
@@ -13,12 +13,23 @@ export const DEFAULT_APP_SETTINGS = {
   allow_user_theme: true,
   allow_signup: true,
 };
+// Phông tự lưu trữ (css/fonts.css: woff2 subset latin + vietnamese). Phông giao diện:
 export const FONTS = {
-  bvp: { name: 'Be Vietnam Pro', css: 'BVP, system-ui, sans-serif', desc: 'Rõ ràng, hiện đại', weight: 600 },
+  bvp: { name: 'Be Vietnam Pro', css: 'BVP, system-ui, sans-serif', desc: 'Thiết kế cho tiếng Việt, rõ ràng', weight: 600 },
+  lexend: { name: 'Lexend', css: 'LexendL, BVP, system-ui, sans-serif', desc: 'Rộng, rất dễ đọc', weight: 600 },
   inter: { name: 'Inter', css: 'InterL, BVP, system-ui, sans-serif', desc: 'Gọn, trung tính', weight: 600 },
   nunito: { name: 'Nunito', css: 'NunitoL, BVP, system-ui, sans-serif', desc: 'Bo tròn, thân thiện', weight: 800 },
   lora: { name: 'Lora', css: 'LoraL, Georgia, serif', desc: 'Có chân, kiểu sổ tay', weight: 600 },
 };
+// Phông đọc & soạn nội dung ghi chú ('ui' = giống phông giao diện)
+export const READ_FONTS = {
+  literata: { name: 'Literata', css: 'LiterataL, Georgia, serif', desc: 'Có chân, êm mắt khi đọc lâu', weight: 600 },
+  notoserif: { name: 'Noto Serif', css: 'NotoSerifL, Georgia, serif', desc: 'Có chân, cổ điển', weight: 600 },
+  lora: { name: 'Lora', css: 'LoraL, Georgia, serif', desc: 'Có chân, mềm mại', weight: 600 },
+  ui: { name: 'Giống giao diện', css: 'var(--font)', desc: 'Dùng phông giao diện', weight: 600 },
+  bvp: FONTS.bvp, lexend: FONTS.lexend, inter: FONTS.inter, nunito: FONTS.nunito,
+};
+export const DEFAULT_READ_FONT = 'literata';
 export const LAYOUTS = { list: 'Danh sách', grid: 'Lưới thẻ', twopane: 'Hai cột' };
 export const NOTE_TYPES = {
   text: { label: 'Văn bản', short: 'Văn bản', icon: 'text' },
@@ -26,7 +37,7 @@ export const NOTE_TYPES = {
   link: { label: 'Đường link', short: 'Link', icon: 'link' },
   ai: { label: 'AI tóm tắt', short: 'AI', icon: 'ai' },
 };
-export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto', showLunar: false, reminderSound: true, folderSuggest: true, chatContext: 'search', showLocation: true, autoResearch: false };
+export const DEFAULT_PREFS = { theme: null, view: null, showLineTimes: true, readingTheme: 'auto', showLunar: false, reminderSound: true, folderSuggest: true, chatContext: 'search', showLocation: true, autoResearch: false, uiFont: null, readFont: null };
 // Thư mục mẫu mặc định (bản Supabase: bảng folder_templates, admin sửa trong Quản trị › Thư mục mẫu)
 export const DEFAULT_FOLDER_TEMPLATES = [
   { name: 'Công việc', color: 'sky', icon: '💼', sort: 1 }, { name: 'Cá nhân', color: 'rose', icon: '🏠', sort: 2 }, { name: 'Tài chính', color: 'butter', icon: '💰', sort: 3 },

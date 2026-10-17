@@ -2,7 +2,7 @@ import { effectiveAi } from './ai/providers.js';
 // Điểm khởi động ứng dụng Ghi Chú: trạng thái, điều hướng, khung giao diện, đồng bộ.
 import { createDataLayer } from './data/index.js';
 import { createAiClient } from './ai/client.js';
-import { DEFAULT_APP_SETTINGS, DEFAULT_PREFS, FONTS, NOTE_TYPES } from './defaults.js';
+import { DEFAULT_APP_SETTINGS, DEFAULT_PREFS, FONTS, READ_FONTS, DEFAULT_READ_FONT, NOTE_TYPES } from './defaults.js';
 import { $, $$, esc, toast, copyText, fold, initials, imageFromPaste, debounce } from './util.js';
 import { icon } from './icons.js';
 import { formatDateTime, setLunarStamps } from './format.js';
@@ -19,7 +19,8 @@ import { NONE, folderPath } from './folders.js';
 import { renderAuth, showRecovery } from './ui/auth.js';
 import { notesAreaHTML, listRegionHTML, twoPaneListHTML, hydrateImages, copyTextOf, dayChipHTML, filterNotes, aiSortBtn } from './ui/notes.js';
 import { Editor } from './ui/editor.js';
-import { openAddMenu, openImageDialog, openLinkDialog, openAiDialog, openModal, confirmDialog, closeTopModal, modalOpen } from './ui/dialogs.js';
+import { openAddMenu, openImageDialog, openLinkDialog, openAiDialog, openModal, confirmDialog, choiceDialog, closeTopModal, modalOpen } from './ui/dialogs.js';
+import { listNewDrafts, clearDraft } from './drafts.js';
 import { renderSettings } from './ui/settings.js';
 import { renderAdmin } from './ui/admin.js';
 import { paletteCSS, readingTheme, PALETTE } from './palette.js';
@@ -42,11 +43,12 @@ function lum(hex) {
   return .2126 * c[0] + .7152 * c[1] + .0722 * c[2];
 }
 function themeVars(s) {
-  const f = FONTS[s.font] || FONTS.bvp;
+  const f = FONTS[app.prefs?.uiFont] || FONTS[s.font] || FONTS.bvp;
+  const rf = READ_FONTS[app.prefs?.readFont] || READ_FONTS[DEFAULT_READ_FONT];
   return {
     '--brand': s.primary_color, '--brand-on': lum(s.primary_color) > .55 ? '#111827' : '#fff',
     '--acc-dark': s.dark_accent, '--acc-on': lum(s.dark_accent) > .35 ? '#04201c' : '#fff',
-    '--font': f.css, '--r': (Number(s.radius) || 0) + 'px',
+    '--font': f.css, '--read-font': rf.css, '--r': (Number(s.radius) || 0) + 'px',
   };
 }
 function effectiveTheme() {
@@ -131,6 +133,7 @@ async function enter(u) {
     readRoute();
     renderShell();
     startReminderTicker(app);
+    setTimeout(offerNewDrafts, 600);
     syncPushOnEnter(app).then(() => refreshPushState(app));
   } catch (e) {
     console.error(e); toast('Lỗi tải dữ liệu: ' + e.message, { kind: 'err', ms: 6000 });
@@ -140,7 +143,7 @@ async function enter(u) {
 function leave() {
   app.unsub?.(); app.unsub = null; app.unsubRem?.(); app.unsubRem = null; app.unsubAnn?.(); app.unsubAnn = null; app.unsubFold?.(); app.unsubFold = null; app.unsubAuto?.(); app.unsubAuto = null; app.automations = []; app.notifs = []; app.autoCfg = null;
   app.reminders = []; app.announcements = []; app.folders = []; app.filter.day = null; app.filter.folder = null; app.filter.loc = false;
-  document.getElementById('ralerts')?.remove();
+  document.getElementById('ralerts')?.remove(); document.getElementById('draft-bar')?.remove();
   app.entered = false; app.user = null; app.notes = []; app.selectedId = null;
   app.paneEditor?.destroy(); app.paneEditor = null; app.modalEditor = null;
   unmountChat();
@@ -388,7 +391,7 @@ app.openNote = async (noteOrDraft) => {
   if (twopane) {
     if (app.paneEditor && app.paneEditor.isDirty()) {
       if (app.paneEditor.noteId() === noteOrDraft.id) return;
-      const ok = await confirmDialog('Ghi chú đang mở có thay đổi chưa lưu. Bỏ các thay đổi đó?', { okText: 'Bỏ thay đổi', danger: true });
+      const ok = await confirmUnsaved(app.paneEditor);
       if (!ok) return;
     }
     app.paneEditor?.destroy(); app.paneEditor = null;
@@ -404,18 +407,68 @@ app.openNote = async (noteOrDraft) => {
   if (app.route.name !== 'notes') app.navigate('#/');
   const ed = new Editor(app, noteOrDraft, { mode: 'modal' });
   const m = openModal(`<div class="dlg wide editor-dlg" role="dialog" aria-label="Trình soạn ghi chú"></div>`, {
-    beforeClose: async () => {
-      if (!ed.isDirty()) return true;
-      return confirmDialog('Ghi chú có thay đổi chưa lưu. Đóng và bỏ các thay đổi?', { okText: 'Bỏ thay đổi', danger: true });
+    beforeClose: () => confirmUnsaved(ed),
+    onClose: () => {
+      ed.destroy(); if (app.modalEditor === ed) app.modalEditor = null; chatNoteChanged();
+      if (edModal === m) { edModal = null; if (history.state?.ghEd) { skipPop = true; history.back(); } }
     },
-    onClose: () => { ed.destroy(); if (app.modalEditor === ed) app.modalEditor = null; chatNoteChanged(); },
   });
   ed.onRequestClose = (force) => m.close(force);
+  // Nút Quay lại của điện thoại/trình duyệt: đóng trình soạn (có hỏi nếu chưa lưu) thay vì rời trang
+  if (isMobile() || app.isTouch) { edModal = m; try { history.pushState({ ghEd: 1 }, '', location.href); } catch { /* bỏ qua */ } }
   app.modalEditor = ed;
   ed.mount(m.el.querySelector('.dlg'));
   if (noteOrDraft._draft) ed.focusTitle(); else ed.focusContent();
   chatNoteChanged();
 };
+/** Hỏi trước khi bỏ thay đổi: Lưu / Bỏ thay đổi / Tiếp tục sửa. → true nếu được phép đóng. */
+async function confirmUnsaved(ed) {
+  if (!ed || !ed.isDirty()) return true;
+  const c = await choiceDialog('Ghi chú có thay đổi <b>chưa lưu</b>. Bạn muốn lưu trước khi đóng?', { title: 'Chưa lưu thay đổi', choices: [
+    { k: 'discard', label: 'Bỏ thay đổi', cls: 'danger' }, { k: 'keep', label: 'Tiếp tục sửa' }, { k: 'save', label: 'Lưu', cls: 'pri' }] });
+  if (c === 'save') { await ed.save(); return !ed.isDirty(); }
+  if (c === 'discard') { ed.markDiscarded(); return true; }
+  return false;
+}
+let edModal = null, skipPop = false;
+window.addEventListener('popstate', () => {
+  if (skipPop) { skipPop = false; return; }
+  if (edModal && !edModal.closed) {
+    const m = edModal;
+    try { history.pushState({ ghEd: 1 }, '', location.href); } catch { /* */ } // giữ lại mục lịch sử cho đến khi thật sự đóng
+    m.close();
+  }
+});
+/* Bàn phím ảo (iOS Safari không thu nhỏ layout viewport): đưa chiều cao/độ lệch của visualViewport vào CSS */
+(function trackViewport() {
+  const vv = window.visualViewport; if (!vv) return;
+  const r = document.documentElement;
+  const upd = () => {
+    r.style.setProperty('--vvh', Math.round(vv.height) + 'px');
+    r.style.setProperty('--vvt', Math.round(vv.offsetTop) + 'px');
+    r.toggleAttribute('data-kb', innerHeight - vv.height > 120 && (isMobile() || matchMedia('(pointer:coarse)').matches));
+  };
+  vv.addEventListener('resize', upd); vv.addEventListener('scroll', upd); upd();
+})();
+/** Ghi chú mới chưa kịp lưu (đóng tab, hết pin, mất mạng…) → gợi ý mở lại. */
+function offerNewDrafts() {
+  $('#draft-bar')?.remove();
+  if (!app.entered) return;
+  const uid = app.user?.id || 'anon';
+  const list = listNewDrafts(uid);
+  if (!list.length) return;
+  const d = list[0], name = (d.title || d.content || d.url || '').trim().split('\n')[0].slice(0, 48);
+  const bar = document.createElement('div'); bar.id = 'draft-bar'; bar.setAttribute('role', 'status');
+  bar.innerHTML = `${icon('history', 16)}<span>Ghi chú mới chưa lưu${list.length > 1 ? ` (${list.length})` : ''}: <b>“${esc(name)}”</b> · ${formatDateTime(d.at)}</span><button class="btn sm pri" data-dr="open">Mở lại</button><button class="btn sm ghost" data-dr="drop">Bỏ</button>`;
+  document.body.appendChild(bar);
+  bar.addEventListener('click', e => {
+    const b = e.target.closest('[data-dr]'); if (!b) return;
+    bar.remove();
+    if (b.dataset.dr === 'drop') { clearDraft(uid, d.id); toast('Đã bỏ bản nháp'); setTimeout(offerNewDrafts, 300); return; }
+    app.openNote({ _draft: true, id: d.id.slice(4), type: d.type || 'text', title: d.title || '', content: d.content || '', url: d.url || null, pinned: false });
+  });
+}
+app.offerNewDrafts = offerNewDrafts;
 app.openChat = () => toggleChat(true);
 app.chatNoteChanged = () => chatNoteChanged();
 /** Lọc ghi chú theo ngày tạo (YYYY-MM-DD giờ VN) hoặc bỏ lọc (null) */

@@ -4,6 +4,7 @@ import { $, esc, toast, nowIso, imageFromPaste, prepareImage, normalizeUrlInput,
 import { icon } from '../icons.js';
 import { computeLineTimes } from '../lineTimes.js';
 import { providerConf } from '../ai/providers.js';
+import { takePhoto, isTouchDevice, canLiveCamera, openLiveCamera } from './camera.js';
 
 /* ============================== ngăn xếp cửa sổ ============================== */
 const stack = [];
@@ -49,6 +50,21 @@ export function confirmDialog(message, { okText = 'Đồng ý', cancelText = 'H�
   });
 }
 
+/** Hộp thoại nhiều lựa chọn. choices: [{ k, label, cls }] (nút cuối được focus). → k | null (đóng/Esc) */
+export function choiceDialog(message, { title = 'Xác nhận', choices = [] } = {}) {
+  return new Promise(resolve => {
+    let done = false;
+    const m = openModal(`<div class="dlg choice-dlg" role="alertdialog" style="max-width:440px"><div class="dh"><h3>${esc(title)}</h3></div>
+      <div class="db"><p style="color:var(--ink2);line-height:1.6">${message}</p></div>
+      <div class="df">${choices.map((c, i) => `<button class="btn ${c.cls || ''}" data-c="${esc(c.k)}" ${i === choices.length - 1 ? 'autofocus' : ''}>${c.label}</button>`).join('')}</div></div>`,
+      { onClose: () => { if (!done) resolve(null); } });
+    m.el.addEventListener('click', e => {
+      const b = e.target.closest('[data-c]'); if (!b) return;
+      done = true; resolve(b.dataset.c); m.close(true);
+    });
+  });
+}
+
 /** Tạo ghi chú kèm line_times ban đầu (mọi dòng mang thời gian tạo). */
 async function createWithTimes(app, fields) {
   const now = nowIso();
@@ -64,6 +80,7 @@ function busy(btn, on, text = 'Đang xử lý…') {
 const MENU = [
   ['text', 'Văn bản', 'Ghi nhanh ý tưởng, danh sách việc cần làm', 'N'],
   ['image', 'Hình ảnh', 'Tải ảnh lên hoặc dán trực tiếp bằng Ctrl+V', 'I'],
+  ['camera', 'Chụp ảnh', 'Mở camera để chụp và lưu thành ghi chú ảnh', 'C'],
   ['link', 'Đường link', 'Lưu trang web kèm tiêu đề và ảnh xem trước', 'L'],
   ['ai', 'AI tóm tắt', 'Dán đoạn văn hoặc URL, AI rút ra các ý chính để ghi nhớ', 'A'],
 ];
@@ -73,7 +90,7 @@ export function openAddMenu(app, anchor) {
   closeMenu();
   const ov = document.createElement('div'); ov.className = 'overlay menu-ov';
   const menu = document.createElement('div'); menu.className = 'menu'; menu.setAttribute('role', 'menu');
-  menu.innerHTML = `<h4>Tạo ghi chú mới</h4>${MENU.map(([k, t, d, key], i) => `<button class="mi ${i === 0 ? 'sel' : ''}" role="menuitem" data-type="${k}"><div class="tic t-${k}">${icon(k === 'image' ? 'image' : k === 'link' ? 'link' : k === 'ai' ? 'ai' : 'text', 20)}</div><div><b>${t}${k === 'ai' ? '<span class="new-badge">MỚI</span>' : ''}</b><small>${d}</small></div><span class="k">${key}</span></button>`).join('')}
+  menu.innerHTML = `<h4>Tạo ghi chú mới</h4>${MENU.map(([k, t, d, key], i) => `<button class="mi ${i === 0 ? 'sel' : ''}" role="menuitem" data-type="${k}"><div class="tic t-${k === 'camera' ? 'image' : k}">${icon(k === 'camera' ? 'camera' : k === 'image' ? 'image' : k === 'link' ? 'link' : k === 'ai' ? 'ai' : 'text', 20)}</div><div><b>${t}${k === 'ai' ? '<span class="new-badge">MỚI</span>' : ''}</b><small>${d}</small></div><span class="k">${key}</span></button>`).join('')}
     <div class="foot">${icon('clipboard', 14)}Mẹo: dán ảnh bằng Ctrl+V ở bất kỳ đâu để tạo nhanh</div>`;
   $('#layer').append(ov, menu);
   const r = anchor.getBoundingClientRect();
@@ -85,7 +102,7 @@ export function openAddMenu(app, anchor) {
   menu.querySelector('.mi').focus();
   menuKey = e => {
     const k = e.key.toLowerCase();
-    const map = { n: 'text', i: 'image', l: 'link', a: 'ai' };
+    const map = { n: 'text', i: 'image', c: 'camera', l: 'link', a: 'ai' };
     if (map[k] && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); pick(map[k]); return; }
     if (k === 'arrowdown' || k === 'arrowup') {
       e.preventDefault(); const items = [...menu.querySelectorAll('.mi')]; const i = items.indexOf(document.activeElement);
@@ -97,18 +114,20 @@ export function openAddMenu(app, anchor) {
 export function startCreate(app, type) {
   if (type === 'text') app.newNote('text');
   else if (type === 'image') openImageDialog(app);
+  else if (type === 'camera') openImageDialog(app, { capture: true }); // gọi đồng bộ trong cú bấm → iOS cho mở camera
   else if (type === 'link') openLinkDialog(app);
   else if (type === 'ai') openAiDialog(app);
 }
 
 /* ============================== Hình ảnh ============================== */
-export function openImageDialog(app, { file } = {}) {
+export function openImageDialog(app, { file, capture = false } = {}) {
   let prepared = null;
   const m = openModal(`<div class="dlg" role="dialog" aria-label="Thêm ghi chú hình ảnh">
     <div class="dh"><div class="tic t-image">${icon('image', 20)}</div><h3>Thêm ghi chú hình ảnh</h3><button class="ib" data-x title="Đóng">${icon('x', 18)}</button></div>
     <div class="db">
       <div class="drop" tabindex="0" data-drop><div class="di">${icon('upload', 24)}</div><div><b>Bấm để chọn ảnh</b>, kéo thả vào đây,<br>hoặc dán ảnh từ clipboard bằng <b>Ctrl+V</b></div><small class="muted">PNG, JPG, WebP, GIF · ảnh lớn được tự thu nhỏ</small></div>
       <input type="file" accept="image/*" hidden data-file>
+      <div class="cam-row"><button class="btn" data-cam>${icon('camera', 16)}Chụp ảnh</button>${isTouchDevice() && canLiveCamera() ? `<button class="btn ghost sm" data-camlive title="Dùng camera ngay trong ứng dụng, có nút đổi camera trước/sau">Camera trong app</button>` : ''}<span class="muted">Ảnh lớn được tự thu nhỏ &amp; nén, giữ đúng chiều xoay.</span></div>
       <label class="field" style="margin-top:14px"><span class="lbl">Tiêu đề</span><input class="inp" data-title placeholder="Ví dụ: Bảng trắng họp sprint"></label>
       <label class="field" style="margin-bottom:0"><span class="lbl">Ghi chú</span><textarea class="inp" data-content rows="3" placeholder="Mô tả ngắn cho ảnh (không bắt buộc)"></textarea></label>
     </div>
@@ -120,13 +139,18 @@ export function openImageDialog(app, { file } = {}) {
       prepared = await prepareImage(f, app.data.mode === 'demo' ? { maxSide: 1280, quality: .82, maxBytes: 400_000 } : {});
       drop.classList.add('has');
       drop.innerHTML = `<img src="${prepared.dataUrl}" alt="Ảnh đã chọn">`;
-      el.querySelector('[data-info]').textContent = `${prepared.width}×${prepared.height} · ${Math.round(prepared.blob.size / 1024)} KB${f.name && f.name !== 'image.png' ? ' · ' + f.name : ' · dán từ clipboard'}`;
+      const kb = b => b >= 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.round(b / 1024) + ' KB';
+      const shrunk = prepared.origSize && prepared.blob !== f && prepared.origSize > prepared.blob.size * 1.1 ? ` (đã nén từ ${kb(prepared.origSize)})` : '';
+      el.querySelector('[data-info]').textContent = `${prepared.width}×${prepared.height} · ${kb(prepared.blob.size)}${shrunk}${/^chup-|^image\.(jpe?g|png)$/i.test(f.name || '') ? (f.name === 'image.png' ? ' · dán từ clipboard' : ' · ảnh chụp') : f.name ? ' · ' + f.name : ''}`;
       el.querySelector('[data-save]').disabled = false;
     } catch (e) { toast(e.message, { kind: 'err' }); }
   };
   const onPaste = e => { if (m.closed) return; const f = imageFromPaste(e); if (f) { e.preventDefault(); setFile(f); } };
   document.addEventListener('paste', onPaste);
   drop.addEventListener('click', () => input.click());
+  const shoot = live => { const p = live ? openLiveCamera() : takePhoto(); p.then(f => f && !m.closed && setFile(f)); };
+  el.querySelector('[data-cam]').addEventListener('click', () => shoot(false));
+  el.querySelector('[data-camlive]')?.addEventListener('click', () => shoot(true));
   drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
   input.addEventListener('change', () => input.files[0] && setFile(input.files[0]));
   drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
@@ -144,6 +168,7 @@ export function openImageDialog(app, { file } = {}) {
   });
   setTimeout(() => drop.focus(), 30);
   if (file) setFile(file);
+  else if (capture) shoot(false);
   return m;
 }
 

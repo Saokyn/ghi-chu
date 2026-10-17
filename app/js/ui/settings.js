@@ -4,7 +4,7 @@ import { icon } from '../icons.js';
 import { READING, READING_KEYS } from '../palette.js';
 import { formatDateTime, formatTime } from '../format.js';
 import { PROVIDERS, PROVIDER_IDS, providerConf, effectiveAi } from '../ai/providers.js';
-import { LAYOUTS } from '../defaults.js';
+import { LAYOUTS, FONTS, READ_FONTS, DEFAULT_READ_FONT } from '../defaults.js';
 import { confirmDialog } from './dialogs.js';
 
 const TABS = [['tai-khoan', 'user', 'Tài khoản'], ['ai', 'ai', 'AI'], ['hien-thi', 'sun', 'Hiển thị'], ['du-lieu', 'cloud', 'Đồng bộ & dữ liệu']];
@@ -78,6 +78,16 @@ function displayTab(box, app) {
       <button class="sw ${app.prefs.showLocation !== false ? 'on' : ''}" data-showloc role="switch" aria-checked="${app.prefs.showLocation !== false}" aria-label="Hiện vị trí trên ghi chú"></button></div>
     ${app.data.research?.available && app.webResearch?.available ? `<div class="tr"><div><b>Tự động tìm trên mạng cho ghi chú mới</b><small>Mặc định của công tắc “Tự động tìm trên mạng” khi tạo ghi chú mới (mỗi ghi chú vẫn bật/tắt riêng được). Khi tìm, phần chữ của ghi chú được gửi tới AI dùng chung và công cụ tìm kiếm.</small></div>
       <button class="sw ${app.prefs.autoResearch ? 'on' : ''}" data-autores role="switch" aria-checked="${!!app.prefs.autoResearch}" aria-label="Tự động tìm trên mạng cho ghi chú mới"></button></div>` : ''}
+    <div class="tr" style="display:block" data-fontsec><div><b>Phông chữ giao diện</b><small>Menu, danh sách, nút… Mặc định theo quản trị viên (${esc((FONTS[s.font] || FONTS.bvp).name)}). Lưu theo tài khoản.</small></div>
+      <div class="fpick" role="radiogroup" aria-label="Phông chữ giao diện">${[['', { name: 'Mặc định', css: (FONTS[s.font] || FONTS.bvp).css, desc: (FONTS[s.font] || FONTS.bvp).name }], ...Object.entries(FONTS)].map(([k, f]) => {
+        const on = (app.prefs.uiFont || '') === k;
+        return `<button class="fpk ${on ? 'on' : ''}" data-uif="${k}" role="radio" aria-checked="${on}"><span class="fs" style="font-family:${f.css}">Nghĩ là ghi — ằ ẵ ặ ể ỡ ự</span><b>${esc(f.name)}</b><small>${esc(f.desc)}</small></button>`;
+      }).join('')}</div></div>
+    <div class="tr" style="display:block"><div><b>Phông chữ nội dung ghi chú</b><small>Dùng cho tiêu đề và nội dung khi đọc/soạn ghi chú. Mặc định: ${esc(READ_FONTS[DEFAULT_READ_FONT].name)}.</small></div>
+      <div class="fpick" role="radiogroup" aria-label="Phông chữ nội dung ghi chú">${Object.entries(READ_FONTS).map(([k, f]) => {
+        const on = (app.prefs.readFont || DEFAULT_READ_FONT) === k;
+        return `<button class="fpk ${on ? 'on' : ''}" data-rdf="${k}" role="radio" aria-checked="${on}"><span class="fs" style="font-family:${k === 'ui' ? 'var(--font)' : f.css}">Cần là thấy — Tiếng Việt có dấu</span><b>${esc(f.name)}</b><small>${esc(f.desc)}${k === DEFAULT_READ_FONT ? ' · mặc định' : ''}</small></button>`;
+      }).join('')}</div></div>
     <div class="tr" style="display:block"><div><b>Mặt giấy đọc & soạn</b><small>Màu nền và màu chữ dịu mắt cho vùng viết ghi chú, tách biệt với màu giao diện</small></div>
       <div class="rths" role="radiogroup" aria-label="Mặt giấy đọc và soạn">${[['auto', 'Tự động', 'Giấy ấm / Tối ấm theo chủ đề'], ...READING_KEYS.map(k => [k, READING[k].name, READING_DESC[k]])].map(([k, n, d]) => {
         const on = (app.prefs.readingTheme || 'auto') === k;
@@ -89,6 +99,10 @@ function displayTab(box, app) {
     if (t) { app.savePrefs({ theme: t.dataset.th }); app.applyTheme(); app.renderShell(); return; }
     const v = e.target.closest('[data-v]');
     if (v) { app.savePrefs({ view: v.dataset.v }); app.paneEditor?.destroy(); app.paneEditor = null; displayTab(box, app); toast('Đã đổi kiểu xem: ' + LAYOUTS[v.dataset.v]); return; }
+    const uf = e.target.closest('[data-uif]');
+    if (uf) { app.savePrefs({ uiFont: uf.dataset.uif || null }); app.applyTheme(); displayTab(box, app); toast('Phông giao diện: ' + (FONTS[uf.dataset.uif]?.name || 'Mặc định')); return; }
+    const rf = e.target.closest('[data-rdf]');
+    if (rf) { app.savePrefs({ readFont: rf.dataset.rdf === DEFAULT_READ_FONT ? null : rf.dataset.rdf }); app.applyTheme(); displayTab(box, app); toast('Phông nội dung: ' + READ_FONTS[rf.dataset.rdf].name); return; }
     const rt = e.target.closest('[data-rt]');
     if (rt) { app.savePrefs({ readingTheme: rt.dataset.rt }); app.applyTheme(); displayTab(box, app); toast('Mặt giấy: ' + (READING[rt.dataset.rt]?.name || 'Tự động')); return; }
     const lu = e.target.closest('[data-lunar]');
