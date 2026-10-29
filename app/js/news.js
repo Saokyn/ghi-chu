@@ -215,7 +215,8 @@ export function verifyVi(vi, it) {
   return nums.every(n => src.includes(n) || src.includes(String(+n))) ? s : null;
 }
 export function parseAi(text, items) {
-  let arr; try { arr = JSON.parse(String(text).replace(/^[\s\S]*?(\[[\s\S]*\])[\s\S]*$/, '$1')); } catch { return {}; }
+  const t = String(text ?? '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/^[\s\S]*<\/think>/i, '').replace(/```(?:json)?/gi, '');
+  let arr; try { arr = JSON.parse(t.replace(/^[\s\S]*?(\[[\s\S]*\])[\s\S]*$/, '$1')); } catch { return {}; }
   const out = {};
   for (const r of Array.isArray(arr) ? arr : []) { const k = +r?.i - 1; if (items[k]) { const v = verifyVi(r.vi, items[k]); if (v) out[k] = v.replace(/[.。]?$/, '.'); } }
   return out;
@@ -253,7 +254,10 @@ export async function collect(topic, { fetchText, seen = [], ai = null, now = Da
     } catch (e) { log.push(`Không đọc được bài ${it.url}: ${String(e?.message || e).slice(0, 120)} — để lần sau`); }
   }
   let vi = {};
-  if (ai && ready.length) { try { vi = await ai(ready); } catch (e) { log.push('AI tóm tắt lỗi — dùng tóm tắt theo quy tắc: ' + String(e?.message || e).slice(0, 80)); } }
+  if (ai && ready.length) {
+    try { vi = await ai(ready) || {}; log.push(`AI tóm tắt: ${Object.keys(vi).length}/${ready.length} mục hợp lệ`); }
+    catch (e) { log.push('AI tóm tắt lỗi — dùng tóm tắt theo quy tắc: ' + String(e?.message || e).slice(0, 160)); }
+  }
   const items = ready.map((it, k) => ({
     url: it.url, hash: it.hash, title: it.title, published: it.published, day: today,
     grp: tpl.parser === 'toram' ? classifyToram(it, today) : 'news', end_date: it.endDate || null,

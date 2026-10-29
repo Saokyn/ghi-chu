@@ -44,7 +44,12 @@ async function aiFor(topic: any) {
   if (!topic.use_ai) return null;
   const { data: shared } = await svc.from('shared_ai').select('*').eq('id', 1).maybeSingle();
   if (!sharedReady(shared)) return null;
-  return async (items: any[]) => N.parseAi(await sharedChat(svc, topic.created_by, shared, N.aiMessages(items), 900, 40_000, []), items);
+  return async (items: any[]) => {
+    const raw = String(await sharedChat(svc, topic.created_by, shared, N.aiMessages(items), 1500, 60_000, []) ?? '');
+    const m = N.parseAi(raw, items);
+    if (!Object.keys(m).length) throw new Error('AI trả lời không dùng được (' + raw.length + ' ký tự): ' + raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/\s+/g, ' ').slice(0, 120));
+    return m;
+  };
 }
 
 Deno.serve(async (req) => {
