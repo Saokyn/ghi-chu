@@ -33,3 +33,15 @@ select cron.schedule('run-automations', '* * * * *', $job$
   where exists (select 1 from public.automations a where a.enabled and a.next_run_at <= now()
                   and (a.claimed_at is null or a.claimed_at < now() - interval '10 minutes'));
 $job$);
+
+-- Bản tin (Pha 9): 07:00 giờ VN (= 00:00 UTC) chạy mọi chủ đề đang bật; 07:20 gọi lại để làm nốt chủ đề còn dở
+-- (hàm tự bỏ qua chủ đề đã chạy theo lịch hôm nay). Chỉ gọi khi có chủ đề đang bật. Dùng chung secret 'reminders_cron_secret'.
+select cron.unschedule(jobid) from cron.job where jobname = 'news-digest';
+select cron.schedule('news-digest', '0,20 0 * * *', $job$
+  select net.http_post(
+    url := 'https://gcjincowezbjynoasfsk.supabase.co/functions/v1/news-digest',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'reminders_cron_secret')),
+    body := '{}'::jsonb, timeout_milliseconds := 150000)
+  where exists (select 1 from public.news_topics t where t.enabled);
+$job$);

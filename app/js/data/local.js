@@ -3,6 +3,7 @@
 import { DEFAULT_APP_SETTINGS, DEFAULT_PREFS, DEFAULT_AI, DEFAULT_FOLDER_TEMPLATES } from '../defaults.js';
 import { uuid, nowIso } from '../util.js';
 import { computeLineTimes } from '../lineTimes.js';
+import * as NEWS from '../news.js';
 
 const K = 'ghichu.demo.';
 const read = (k, d) => { try { const v = localStorage.getItem(K + k); return v == null ? d : JSON.parse(v); } catch { return d; } };
@@ -142,6 +143,52 @@ export function createLocalAdapter() {
       },
       async history() { return read('app_log', []); },
       subscribe(cb) { appL.add(cb); return () => appL.delete(cb); },
+    },
+    // 📰 Bản tin (demo): chạy CÙNG mã collect/renderNote như máy chủ, nhưng đọc ẢNH CHỤP đã lưu (không ra Internet).
+    newsTopics: {
+      available: true, demo: true, SNAPSHOT: '29/10/2026',
+      async list() { need(); return read('news_topics', []); },
+      async create(f) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên quản lý Bản tin.');
+        const t = Object.assign({ id: uuid(), enabled: false, audience: 'me', target_ids: [], keep_days: 7, use_ai: false, template: { parser: 'toram' }, created_by: user.id, created_at: nowIso() }, newsCheck(f));
+        write('news_topics', [...read('news_topics', []), t]); return t;
+      },
+      async update(id, f) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên quản lý Bản tin.');
+        const all = read('news_topics', []), i = all.findIndex(t => t.id === id); if (i < 0) throw new Error('Không tìm thấy chủ đề.');
+        all[i] = Object.assign({}, all[i], newsCheck(Object.assign({}, all[i], f)), { id }); write('news_topics', all); return all[i];
+      },
+      async remove(id) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên quản lý Bản tin.');
+        write('news_topics', read('news_topics', []).filter(t => t.id !== id)); localStorage.removeItem(K + 'news_items.' + id);
+        const links = read('news_links.' + user.id, {}); delete links[id]; write('news_links.' + user.id, links);
+        const list = loadNotes(); for (const n of list) if (n.news_topic_id === id) n.news_topic_id = null; saveNotes(list);
+      },
+      async items(id, limit = 30) { need(); return read('news_items.' + id, []).slice(-limit).reverse(); },
+      async run(id) {
+        need(); if (user.role !== 'admin') throw new Error('Chỉ quản trị viên.');
+        const all = read('news_topics', []), topic = all.find(t => t.id === id); if (!topic) throw new Error('Không tìm thấy chủ đề.');
+        const now = Date.parse('2026-10-29T00:00:00Z');          // ngày của ảnh chụp
+        const stored = read('news_items.' + id, []);
+        const r = await NEWS.collect(topic, { fetchText: demoFetch, seen: stored, now });
+        const today = NEWS.vnDay(now), keep = topic.keep_days || NEWS.KEEP_DAYS;
+        const items = [...stored, ...r.items.map(({ url, hash, title, grp, summary, end_date, published, day }) => ({ url, hash, title, grp, summary, end_date, published, day }))];
+        write('news_items.' + id, items.slice(-500));
+        let notes = 0, status = r.fetched.length ? (r.log.some(l => /^Không đọc được|^Trang bài không đúng/.test(l)) ? 'partial' : 'ok') : 'error';
+        if (status !== 'error') {
+          const head = NEWS.renderNote({ topic, items: items.filter(i => i.day >= NEWS.addDays(today, -(keep - 1))), today });
+          const links = read('news_links.' + user.id, {}), list = loadNotes();
+          const cur = links[id] ? list.find(n => n.id === links[id]) : null;
+          if (links[id] === null || (links[id] && !cur)) { links[id] = null; }   // người dùng đã xoá ghi chú = bỏ theo dõi
+          else if (cur) { await api.notes.update(cur.id, { title: '📰 ' + topic.name, content: head + NEWS.userPart(cur.content) }); notes = 1; }
+          else { const n = await api.notes.create({ title: '📰 ' + topic.name, content: head, news_topic_id: id }); links[id] = n.id; notes = 1; }
+          write('news_links.' + user.id, links);
+        }
+        const summary = status === 'error' ? 'Lỗi: Không đọc được nguồn nào' : `${r.items.length} mục mới · cập nhật ${notes} ghi chú · (demo: ảnh chụp ${this.SNAPSHOT})`;
+        const i = all.findIndex(t => t.id === id); all[i] = Object.assign({}, topic, { last_run_at: nowIso(), last_status: status, last_result: { summary, log: r.log.slice(-20), trig: 'manual' } });
+        write('news_topics', all);
+        return { status, summary, added: r.items.length, notes, log: r.log.slice(-20) };
+      },
     },
     admin: {
       async stats() {
@@ -328,4 +375,31 @@ function sampleNotes(uid) {
     mk({ type: 'text', color: 'mint', title: 'Chỉ số huyết áp của bố', created: at(126), updated: at(26),
       first: 'Sáng 118/76 – mạch 72', content: 'Sáng 118/76 – mạch 72\nTối 124/80 – mạch 75\nNhắc bố uống thuốc lúc 7:00 và 19:00' }),
   ];
+}
+
+// ---- Bản tin (demo) ----
+function newsCheck(f) {
+  const name = String(f.name || '').trim(); if (!name || name.length > 80) throw new Error('Tên chủ đề 1–80 ký tự');
+  const sources = (Array.isArray(f.sources) ? f.sources : []).map(s => String(s).trim()).filter(Boolean);
+  if (!sources.length || sources.length > 5) throw new Error('Cần 1–5 nguồn');
+  if (!sources.every(u => NEWS.validSourceUrl(u))) throw new Error('Nguồn phải là URL https hợp lệ');
+  const template = f.template && ['toram', 'rss'].includes(f.template.parser) ? f.template : { parser: 'toram' };
+  const keep_days = Math.max(1, Math.min(14, +f.keep_days || 7));
+  const audience = ['me', 'users', 'all'].includes(f.audience) ? f.audience : 'me';
+  const target_ids = (Array.isArray(f.target_ids) ? f.target_ids : []).slice(0, 50);
+  return { name, sources, template, keep_days, audience, target_ids, enabled: !!f.enabled, use_ai: !!f.use_ai };
+}
+// Ảnh chụp thật của en.toram.jp và VnExpress Thời sự (29/10/2026), lưu trong app/demo/ — bản demo không ra Internet.
+async function demoFetch(url) {
+  const u = new URL(url); let f = null;
+  if (u.hostname === 'en.toram.jp') {
+    const id = u.searchParams.get('information_id'), t = u.searchParams.get('type_code') || 'all';
+    f = id ? `toram/detail-${id}.html` : u.pathname.startsWith('/information') ? `toram/list-${t}.html` : null;
+  } else if (u.hostname === 'vnexpress.net') {
+    const id = /-(\d+)\.html$/.exec(u.pathname)?.[1];
+    f = u.pathname === '/rss/thoi-su.rss' ? 'rss/vnexpress-thoi-su.rss' : id ? `rss/vnexpress-${id}.html` : null;
+  }
+  if (!f) throw new Error('bản demo không truy cập mạng — chỉ có ảnh chụp en.toram.jp và VnExpress Thời sự');
+  const r = await fetch(new URL('../../demo/' + f, import.meta.url)); if (!r.ok) throw new Error('HTTP ' + r.status + ' (không có trong ảnh chụp)');
+  return r.text();
 }

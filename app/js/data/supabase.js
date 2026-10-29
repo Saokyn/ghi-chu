@@ -42,10 +42,17 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunc
   const colorMap = () => { try { return JSON.parse(localStorage.getItem(colorKey()) || '{}') || {}; } catch { return {}; } };
   const setLocalColor = (id, c) => { const m = colorMap(); if (c) m[id] = c; else delete m[id]; try { localStorage.setItem(colorKey(), JSON.stringify(m)); } catch {} };
   const withColor = (n) => { if (!n || hasColor !== false) return n; const c = colorMap()[n.id]; return Object.assign({}, n, { color: c || null }); };
-  const cols = () => hasColor === false ? NOTE_COLS_BASE : NOTE_COLS_BASE + ',color';
-  // Chạy truy vấn; nếu lỗi do thiếu cột color thì ghi nhận và chạy lại không có cột đó.
+  // Pha 9: cột notes.news_topic_id (📰 Bản tin). Chưa chạy schema mới → bỏ cột, app vẫn chạy như cũ.
+  let hasNews = null;
+  const isMissingNews = (e) => !!e && /news_topic_id/i.test(e.message || '') && (e.code === '42703' || e.code === 'PGRST204' || /column|schema cache/i.test(e.message || ''));
+  const cols = () => (hasColor === false ? NOTE_COLS_BASE : NOTE_COLS_BASE + ',color') + (hasNews === false ? '' : ',news_topic_id');
+  // Chạy truy vấn; nếu lỗi do thiếu cột color/news_topic_id thì ghi nhận và chạy lại không có cột đó.
   async function q(build, payload) {
     let r = await build(cols(), payload);
+    if (r.error && hasNews !== false && isMissingNews(r.error)) {
+      hasNews = false; console.info('[Ghi Chú] Bảng notes chưa có cột "news_topic_id" — mục 📰 Bản tin sẽ trống cho tới khi chạy supabase/schema.sql.');
+      r = await build(cols(), payload);
+    }
     if (r.error && hasColor !== false && isMissingColor(r.error)) {
       hasColor = false;
       console.info('[Ghi Chú] Bảng notes chưa có cột "color" — màu ghi chú được lưu trên máy này. Chạy lại supabase/schema.sql để đồng bộ màu.');
@@ -229,6 +236,27 @@ export function createSupabaseAdapter(sb, { proxyFunction = 'ai-proxy', pushFunc
       subscribe(cb) {
         const ch = sb.channel('app_settings').on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, async () => cb(await api.app.get())).subscribe();
         return () => sb.removeChannel(ch);
+      },
+    },
+    // 📰 Bản tin (pha 9): chỉ admin quản lý chủ đề (RLS is_admin). Máy chủ (news-digest) đọc nguồn + ghi ghi chú cho người nhận.
+    newsTopics: {
+      available: true,
+      FIELDS: ['name', 'sources', 'template', 'enabled', 'audience', 'target_ids', 'keep_days', 'use_ai'],
+      pick(f) { const p = {}; for (const k of this.FIELDS) if (k in f) p[k] = f[k]; return p; },
+      async list() { need(); return must(await sb.from('news_topics').select('*').order('created_at')); },
+      async create(f) { need(); return must(await sb.from('news_topics').insert(this.pick(f)).select('*').single()); },
+      async update(id, f) { need(); return must(await sb.from('news_topics').update(this.pick(f)).eq('id', id).select('*').single()); },
+      async remove(id) { need(); must(await sb.from('news_topics').delete().eq('id', id)); },
+      async items(id, limit = 30) { need(); return must(await sb.from('news_items').select('url,title,grp,summary,day,end_date').eq('topic_id', id).order('first_seen', { ascending: false }).limit(limit)); },
+      async run(id) {
+        need();
+        const { data, error } = await sb.functions.invoke('news-digest', { body: { action: 'run', id } });
+        if (error) {
+          let msg = error.message, code = '';
+          try { const j = await error.context?.json?.(); if (j?.error) { msg = j.error; code = j.code || ''; } } catch { /* bỏ qua */ }
+          const e = new Error(msg); e.code = code; throw e;
+        }
+        return data;
       },
     },
     admin: {

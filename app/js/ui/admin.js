@@ -1,6 +1,7 @@
 // Quản trị: Tùy chỉnh giao diện (tên app, logo, màu, phông, bố cục, chủ đề, bo góc, mật độ + xem trước trực tiếp)
 import { annAdminPage } from './announce.js';
 import { templatesAdminPage } from './folders.js';
+import { newsAdminPage } from './news.js';
 // và danh sách người dùng. Lưu vào app_settings (mọi người đọc được, chỉ admin ghi được).
 import { esc, toast, prepareImage, initials } from '../util.js';
 import { icon } from '../icons.js';
@@ -20,6 +21,7 @@ export function renderAdmin(el, app, tab) {
   if (tab === 'ai-dung-chung') return sharedAiPage(el, app);
   if (tab === 'thong-bao') return annAdminPage(el, app);
   if (tab === 'thu-muc-mau') return templatesAdminPage(el, app);
+  if (tab === 'ban-tin') return newsAdminPage(el, app);
   return themePage(el, app);
 }
 

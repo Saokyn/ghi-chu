@@ -168,14 +168,15 @@ window.addEventListener('hashchange', () => { if (!app.entered) return; readRout
 /* ============================== khung giao diện ============================== */
 const NAVS = [['all', 'notes', 'Tất cả ghi chú'], ['pinned', 'pin', 'Đã ghim']];
 function counts() {
-  const c = { all: app.notes.length, pinned: 0, text: 0, image: 0, link: 0, ai: 0 };
-  for (const n of app.notes) { if (n.pinned) c.pinned++; c[n.type] = (c[n.type] || 0) + 1; }
+  const c = { all: app.notes.length, pinned: 0, news: 0, text: 0, image: 0, link: 0, ai: 0 };
+  for (const n of app.notes) { if (n.pinned) c.pinned++; if (n.news_topic_id) c.news++; c[n.type] = (c[n.type] || 0) + 1; }
   return c;
 }
 function navHTML() {
   const c = counts(), r = app.route, f = app.filter.nav, onNotes = r.name === 'notes';
   const item = (key, ic, label, n, on, attr) => `<button class="nav ${on ? 'on' : ''}" ${attr} data-tip="${esc(label)}">${icon(ic)}<span class="lb">${esc(label)}</span>${n != null ? `<span class="n">${n}</span>` : ''}</button>`;
   let h = NAVS.map(([k, ic, l]) => item(k, ic, l, c[k], onNotes && f === k, `data-nav="${k}"`)).join('');
+  if (c.news || (app.user?.role === 'admin' && app.data.newsTopics?.available)) h += item('news', 'newspaper', '📰 Bản tin', c.news, onNotes && f === 'news', `data-nav="news"`);
   const rc = remindersCount(app);
   h += `<button class="nav ${r.name === 'reminders' ? 'on' : ''}" data-go="#/nhac-viec" data-tip="Nhắc việc">${icon('bell')}<span class="lb">Nhắc việc</span>${rc ? `<span class="n hot">${rc}</span>` : ''}</button>`;
   h += autoNavHTML(r);
@@ -186,11 +187,12 @@ function navHTML() {
   h += item('settings', 'settings', 'Cài đặt', null, r.name === 'settings', `data-go="#/cai-dat/${r.name === 'settings' ? r.tab || 'ai' : 'ai'}"`);
   if (app.user?.role === 'admin') {
     h += `<div class="sec">Quản trị</div>`;
-    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && !['nguoi-dung', 'ai-dung-chung', 'thong-bao', 'thu-muc-mau'].includes(r.tab), `data-go="#/quan-tri/giao-dien"`);
+    h += item('theme', 'palette', 'Tùy chỉnh giao diện', null, r.name === 'admin' && !['nguoi-dung', 'ai-dung-chung', 'thong-bao', 'thu-muc-mau', 'ban-tin'].includes(r.tab), `data-go="#/quan-tri/giao-dien"`);
     h += item('users', 'users', 'Người dùng', null, r.name === 'admin' && r.tab === 'nguoi-dung', `data-go="#/quan-tri/nguoi-dung"`);
     h += item('sharedai', 'ai', 'AI dùng chung', null, r.name === 'admin' && r.tab === 'ai-dung-chung', `data-go="#/quan-tri/ai-dung-chung"`);
     h += item('ann', 'megaphone', 'Thông báo', null, r.name === 'admin' && r.tab === 'thong-bao', `data-go="#/quan-tri/thong-bao"`);
     h += item('ftpl', 'folder', 'Thư mục mẫu', null, r.name === 'admin' && r.tab === 'thu-muc-mau', `data-go="#/quan-tri/thu-muc-mau"`);
+    if (app.data.newsTopics?.available) h += item('newsadm', 'newspaper', 'Bản tin tự động', null, r.name === 'admin' && r.tab === 'ban-tin', `data-go="#/quan-tri/ban-tin"`);
   }
   return h;
 }

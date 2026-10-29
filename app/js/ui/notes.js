@@ -51,6 +51,7 @@ export function filterNotes(app) {
   if (folder) list = list.filter(n => inFolder(n, folder, app.folders || []));
   if (loc) list = list.filter(hasLoc);
   if (nav === 'pinned') list = list.filter(n => n.pinned);
+  else if (nav === 'news') list = list.filter(n => n.news_topic_id);
   else if (NOTE_TYPES[nav]) list = list.filter(n => n.type === nav);
   const words = fold(q).trim().split(/\s+/).filter(Boolean);
   if (words.length) list = list.filter(n => {

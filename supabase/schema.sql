@@ -1184,4 +1184,166 @@ do $$ begin
 end $$;
 
 
+-- =====================================================================
+-- Pha 9: BẢN TIN tự cập nhật (📰). Mỗi chủ đề = MỘT ghi chú cho mỗi người nhận.
+--   * news_topics: admin quản lý (tên, nguồn https ≤5, mẫu nhóm, bật/tắt, người nhận, số ngày giữ).
+--   * news_items: mục đã thấy (khử trùng theo URL/hash phía máy chủ), chỉ admin đọc, chỉ máy chủ ghi; giữ ~90 ngày.
+--   * news_topic_notes: chủ đề ↔ ghi chú của từng người. Người dùng xoá ghi chú → note_id = NULL = "đã bỏ theo dõi",
+--     máy chủ KHÔNG tạo lại.
+--   * Ghi ghi chú qua news_write_note(): khoá hàng, chỉ ghi vào ghi chú của đúng người nhận, giữ nguyên phần dưới MARKER.
+-- =====================================================================
+create table if not exists public.news_topics (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  sources     jsonb not null default '[]'::jsonb,        -- ["https://…", …]
+  template    jsonb not null default '{"parser":"toram"}'::jsonb,  -- {parser:'toram'|'rss', groups?:[{key,name}]}
+  enabled     boolean not null default false,
+  audience    text not null default 'me',                 -- me | users | all
+  target_ids  uuid[] not null default '{}',
+  keep_days   int not null default 7,
+  use_ai      boolean not null default false,             -- tóm tắt bằng AI dùng chung (có kiểm chứng), mặc định tắt
+  last_run_at timestamptz,
+  last_status text,                                       -- ok | partial | error
+  last_result jsonb,
+  created_by  uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create or replace function public.news_topics_guard()
+returns trigger language plpgsql set search_path = public as $$
+declare s jsonb;
+begin
+  new.name := btrim(coalesce(new.name, ''));
+  if char_length(new.name) not between 1 and 80 then raise exception 'Tên chủ đề 1–80 ký tự' using errcode = '22023'; end if;
+  if jsonb_typeof(new.sources) <> 'array' or jsonb_array_length(new.sources) not between 1 and 5 then
+    raise exception 'Cần 1–5 nguồn' using errcode = '22023'; end if;
+  for s in select * from jsonb_array_elements(new.sources) loop
+    if jsonb_typeof(s) <> 'string' or char_length(s #>> '{}') > 500 or (s #>> '{}') !~ '^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[^\s]*)?$' then
+      raise exception 'Nguồn phải là URL https hợp lệ' using errcode = '22023'; end if;
+  end loop;
+  if jsonb_typeof(new.template) <> 'object' or coalesce(new.template->>'parser', '') not in ('toram', 'rss')
+     or (new.template ? 'groups' and jsonb_typeof(new.template->'groups') <> 'array')
+     or char_length(new.template::text) > 2000 then
+    raise exception 'Mẫu nhóm không hợp lệ' using errcode = '22023'; end if;
+  if new.audience not in ('me', 'users', 'all') then raise exception 'Người nhận không hợp lệ' using errcode = '22023'; end if;
+  if coalesce(array_length(new.target_ids, 1), 0) > 50 then raise exception 'Tối đa 50 người nhận' using errcode = '22023'; end if;
+  if new.keep_days not between 1 and 14 then raise exception 'Số ngày giữ 1–14' using errcode = '22023'; end if;
+  if tg_op = 'UPDATE' then new.created_by := old.created_by; new.created_at := old.created_at; end if;
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists news_topics_guard on public.news_topics;
+create trigger news_topics_guard before insert or update on public.news_topics
+  for each row execute function public.news_topics_guard();
+alter table public.news_topics enable row level security;
+drop policy if exists news_topics_admin on public.news_topics;
+create policy news_topics_admin on public.news_topics for all to authenticated using (public.is_admin()) with check (public.is_admin());
+revoke all on public.news_topics from anon, authenticated;
+grant select, insert, update, delete on public.news_topics to authenticated;
+grant select, update on public.news_topics to service_role;
+
+create table if not exists public.news_items (
+  id         bigint generated always as identity primary key,
+  topic_id   uuid not null references public.news_topics(id) on delete cascade,
+  url        text not null,
+  hash       text not null,
+  title      text not null default '',
+  grp        text not null default 'update',
+  summary    text not null default '',
+  ai         boolean not null default false,
+  end_date   date,
+  published  date,
+  day        date not null,                   -- ngày (giờ VN) mục được đưa vào bản tin
+  first_seen timestamptz not null default now(),
+  unique (topic_id, url)
+);
+create index if not exists news_items_hash_idx on public.news_items (topic_id, hash);
+create index if not exists news_items_day_idx on public.news_items (topic_id, day desc);
+alter table public.news_items enable row level security;
+drop policy if exists news_items_admin_read on public.news_items;
+create policy news_items_admin_read on public.news_items for select to authenticated using (public.is_admin());
+revoke all on public.news_items from anon, authenticated;
+grant select on public.news_items to authenticated;
+grant select, insert, delete on public.news_items to service_role;
+
+alter table public.notes add column if not exists news_topic_id uuid references public.news_topics(id) on delete set null;
+create index if not exists notes_news_idx on public.notes (user_id, news_topic_id) where news_topic_id is not null;
+-- Người dùng không tự gắn ghi chú vào chủ đề (chỉ máy chủ). Được phép bỏ gắn (đặt NULL).
+create or replace function public.notes_news_guard()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon') and new.news_topic_id is not null
+     and (tg_op = 'INSERT' or new.news_topic_id is distinct from old.news_topic_id) then
+    raise exception 'Chỉ máy chủ gắn ghi chú vào Bản tin' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+drop trigger if exists notes_news_guard on public.notes;
+create trigger notes_news_guard before insert or update of news_topic_id on public.notes
+  for each row execute function public.notes_news_guard();
+
+create table if not exists public.news_topic_notes (
+  topic_id uuid not null references public.news_topics(id) on delete cascade,
+  user_id  uuid not null references auth.users(id) on delete cascade,
+  note_id  uuid references public.notes(id) on delete set null,   -- NULL = người dùng đã xoá ghi chú → bỏ theo dõi
+  created_at timestamptz not null default now(),
+  primary key (topic_id, user_id)
+);
+alter table public.news_topic_notes enable row level security;
+drop policy if exists news_topic_notes_own on public.news_topic_notes;
+create policy news_topic_notes_own on public.news_topic_notes for select to authenticated using (user_id = auth.uid() or public.is_admin());
+drop policy if exists news_topic_notes_unfollow on public.news_topic_notes;
+create policy news_topic_notes_unfollow on public.news_topic_notes for delete to authenticated using (user_id = auth.uid() or public.is_admin());
+revoke all on public.news_topic_notes from anon, authenticated;
+grant select, delete on public.news_topic_notes to authenticated;
+grant select on public.news_topic_notes to service_role;
+
+-- Người nhận của một chủ đề (chỉ máy chủ): me = người tạo, users = danh sách, all = mọi hồ sơ.
+create or replace function public.news_targets(p_topic uuid)
+returns setof uuid language sql stable security definer set search_path = public as $$
+  select p.id from public.news_topics t join public.profiles p on
+    case t.audience when 'me' then p.id = t.created_by when 'users' then p.id = any(t.target_ids) else true end
+  where t.id = p_topic
+$$;
+
+-- Ghi bản tin vào ghi chú của MỘT người nhận. p_head = phần máy chủ dựng (kết thúc bằng MARKER + xuống dòng).
+-- Trả về: id ghi chú | NULL nếu người dùng đã bỏ theo dõi / không còn là người nhận.
+create or replace function public.news_write_note(p_topic uuid, p_user uuid, p_title text, p_head text)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  m constant text := '───── ✍️ Ghi chú của bạn · phần dưới dòng này không bị ghi đè ─────';
+  link public.news_topic_notes; n public.notes; u text; nid uuid;
+begin
+  if not exists (select 1 from public.news_targets(p_topic) x where x = p_user) then return null; end if;
+  if right(coalesce(p_head, ''), char_length(m) + 1) <> m || E'\n' then raise exception 'p_head phải kết thúc bằng MARKER' using errcode = '22023'; end if;
+  select * into link from public.news_topic_notes where topic_id = p_topic and user_id = p_user for update;
+  if found and link.note_id is null then return null; end if;          -- đã bỏ theo dõi
+  if found then
+    select * into n from public.notes where id = link.note_id and user_id = p_user for update;
+    if not found then return null; end if;
+    u := case when position(m in n.content) > 0 then regexp_replace(substr(n.content, position(m in n.content) + char_length(m)), '^\n', '')
+              else btrim(n.content) end;
+    update public.notes set title = left(p_title, 500), content = left(p_head || u, 200000), news_topic_id = p_topic
+      where id = n.id;
+    return n.id;
+  end if;
+  insert into public.notes (user_id, type, title, content, news_topic_id, pinned)
+    values (p_user, 'text', left(p_title, 500), left(p_head, 200000), p_topic, false) returning id into nid;
+  insert into public.news_topic_notes (topic_id, user_id, note_id) values (p_topic, p_user, nid);
+  return nid;
+end $$;
+
+-- Dọn mục cũ (> 90 ngày) để bảng nhỏ; 90 ngày > 7 ngày hiển thị nên mục cũ không "mới lại".
+create or replace function public.news_prune()
+returns int language sql security definer set search_path = public as $$
+  with d as (delete from public.news_items where first_seen < now() - interval '90 days' returning 1) select count(*)::int from d
+$$;
+
+revoke all on function public.news_targets(uuid) from public, anon, authenticated;
+revoke all on function public.news_write_note(uuid, uuid, text, text) from public, anon, authenticated;
+revoke all on function public.news_prune() from public, anon, authenticated;
+grant execute on function public.news_targets(uuid) to service_role;
+grant execute on function public.news_write_note(uuid, uuid, text, text) to service_role;
+grant execute on function public.news_prune() to service_role;
+
 -- Hết. Kiểm tra nhanh:  select public.is_admin();  (trả về false nếu chưa là admin)

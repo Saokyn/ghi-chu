@@ -131,6 +131,20 @@ Chưa deploy thì: Grok/Gemini/Groq/OpenRouter… vẫn gọi thẳng từ trìn
 - Deploy: `supabase functions deploy automations --no-verify-jwt` (hàm tự kiểm tra `x-cron-secret` hoặc JWT người dùng cho “Chạy ngay”), rồi chạy phần `run-automations` trong `supabase/cron.sql`. Dùng chung secret `CRON_SECRET`, `VAPID_*`, `ALLOWED_ORIGINS`.
 - Giới hạn: **Quản trị → AI dùng chung → Tự động hóa**: bật tính năng (mặc định tắt = chỉ admin), cho phép mọi người hoặc từng người, số tự động hóa/người (5), số lượt chạy/người/24 giờ (12). Mỗi lượt còn tính vào hạn mức tìm trên mạng + AI dùng chung của người đó.
 
+## 5b. 📰 Bản tin tự động (pha 9)
+
+Mỗi chủ đề (vd. “Toram – Sự kiện” từ en.toram.jp, “Thời sự VN” từ RSS VnExpress) là **một ghi chú**. Mỗi sáng ~07:00 giờ VN,
+Edge Function `news-digest` đọc nguồn, lấy mục **mới** (chống trùng theo URL/hash lưu ở bảng `news_items`), đọc từng trang bài
+(chỉ liên kết tới trang đã đọc được), xếp vào nhóm theo mẫu và ghi lên đầu ghi chú dưới “📅 dd/mm/yyyy”. Mục quá 7 ngày (tuỳ
+chủ đề, 1–14) tự biến mất. Phần người dùng ghi **dưới dấu phân cách** không bao giờ bị ghi đè; xoá ghi chú = bỏ theo dõi.
+Tóm tắt mặc định theo quy tắc (nhãn tiếng Việt + tiêu đề gốc); bật “Tóm tắt bằng AI dùng chung” để có câu tóm tắt tiếng Việt.
+
+Triển khai (theo thứ tự):
+1. Chạy phần “Pha 9” trong `supabase/schema.sql` (idempotent).
+2. `supabase functions deploy news-digest --no-verify-jwt` (hàm tự kiểm tra JWT admin cho “Chạy ngay”, cron dùng `x-cron-secret`).
+3. Chạy khối `news-digest` trong `supabase/cron.sql` (07:00 và 07:20 giờ VN — lượt 07:20 làm nốt chủ đề hết giờ).
+4. Quản trị › Bản tin tự động › thêm chủ đề › **Chạy ngay** để kiểm tra máy chủ Supabase truy cập được nguồn.
+
 ## 6. Deploy GitHub Pages (sau này)
 
 Mọi đường dẫn trong app đều **tương đối**, nên chạy được ở `https://<tên-github>.github.io/<tên-repo>/`.
